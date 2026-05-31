@@ -1,0 +1,18 @@
+@baseUrl = http://127.0.0.1:8000
+
+### Start resume analysis — returns job_id
+# @name start_resume_analysis
+POST {{baseUrl}}/resume/analyze
+Content-Type: multipart/form-data; boundary=----restclient
+
+------restclient
+Content-Disposition: form-data; name="resume"; filename="CNPJ MEI.pdf"
+Content-Type: application/pdf
+
+< ../../assets/CNPJ MEI.pdf
+------restclient--
+
+@job_id = {{start_resume_analysis.response.body.job_id}}
+
+### Poll job status (replace with job_id from POST response)
+GET {{baseUrl}}/resume/analyze/{{job_id}}
