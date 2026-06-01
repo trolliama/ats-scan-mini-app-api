@@ -4,10 +4,10 @@ from typing import Any
 from fastapi import BackgroundTasks, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from src.agent import run_agent
-from src.app import get_app
-from src.logger import configure_logging, format_bytes, get_logger
-from src.resume_parser import (
+from agent import run_agent
+from app import get_app
+from logger import configure_logging, format_bytes, get_logger
+from resume_parser import (
     extract_markdown_from_resume,
     validate_resume_filename,
 )

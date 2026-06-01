@@ -14,9 +14,6 @@ dependencies = [
     "pydantic-settings (>=2.0.0,<3.0.0)",
     "uvicorn (>=0.47.0,<0.48.0)",
     "python-multipart (>=0.0.29,<0.0.30)",
-    "mypy (>=2.1.0,<3.0.0)",
-    "black (>=26.5.1,<27.0.0)",
-    "isort (>=8.0.1,<9.0.0)",
     "structlog (>=25.5.0,<26.0.0)",
     "markitdown[docx,pdf] (>=0.1.4,<0.2.0)",
 ]
@@ -26,6 +23,15 @@ package-mode = false
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.3"
+mypy = ">=2.1.0,<3.0.0"
+black = ">=26.5.1,<27.0.0"
+isort = ">=8.0.1,<9.0.0"
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+
+[tool.mypy]
+mypy_path = "src"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
