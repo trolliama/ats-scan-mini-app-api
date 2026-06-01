@@ -21,6 +21,17 @@ class Settings(BaseSettings):
     log_env: LogEnv = "dev"
     log_color: bool = True
 
+    api_key: str
+    sqlite_path: Path = Path("data/scans.db")
+    next_webhook_url: str
+    webhook_secret: str
+    s3_endpoint: str
+    s3_bucket: str
+    s3_access_key: str
+    s3_secret_key: str
+    s3_region: str = "us-east-1"
+    openai_api_key: str | None = None
+
     @property
     def log_level_value(self) -> int:
         return getattr(logging, self.log_level, logging.INFO)
