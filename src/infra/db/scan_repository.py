@@ -1,52 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from db.models import Scan
-from scan.schemas import ATSScanResult
-
-
-class DuplicateScanError(Exception):
-    pass
-
-
-class ScanNotFound(Exception):
-    pass
-
-
-@dataclass
-class ScanCreate:
-    scan_id: UUID
-    session_id: UUID
-    file_key: str
-    bucket: str
-    original_filename: str
-
-
-@dataclass
-class ScanRecord:
-    id: str
-    session_id: str
-    file_key: str
-    bucket: str
-    original_filename: str
-    status: str
-    ats_score: int | None
-    job_title_detected: str | None
-    failure_reason: str | None
-    result: ATSScanResult | None
-    webhook_processing_sent: bool
-    webhook_terminal_sent: bool
-    created_at: str
-    updated_at: str
-    started_at: str | None
-    completed_at: str | None
+from core.exceptions import DuplicateScanError, ScanNotFound
+from core.models import ATSScanResult, ScanCreate, ScanRecord
+from infra.db.models import Scan
 
 
 def _utc_now() -> str:
@@ -63,7 +25,7 @@ def _to_record(scan: Scan) -> ScanRecord:
         file_key=scan.file_key,
         bucket=scan.bucket,
         original_filename=scan.original_filename,
-        status=scan.status,
+        status=scan.status,  # type: ignore[arg-type]
         ats_score=scan.ats_score,
         job_title_detected=scan.job_title_detected,
         failure_reason=scan.failure_reason,
@@ -97,7 +59,7 @@ class ScanRepository:
         )
         self._session.add(scan)
         try:
-            self._session.commit()
+            self._session.flush()
         except IntegrityError:
             self._session.rollback()
             raise DuplicateScanError from None
@@ -119,7 +81,6 @@ class ScanRepository:
         scan.status = "processing"
         scan.started_at = now
         scan.updated_at = now
-        self._session.commit()
         return _to_record(scan)
 
     def mark_completed(
@@ -138,7 +99,6 @@ class ScanRepository:
         scan.result_json = result.model_dump_json()
         scan.completed_at = now
         scan.updated_at = now
-        self._session.commit()
 
     def mark_failed(self, scan_id: str, reason: str) -> None:
         scan = self._require_scan(scan_id)
@@ -149,19 +109,16 @@ class ScanRepository:
         scan.ats_score = None
         scan.completed_at = now
         scan.updated_at = now
-        self._session.commit()
 
     def mark_webhook_processing_sent(self, scan_id: str) -> None:
         scan = self._require_scan(scan_id)
         scan.webhook_processing_sent = True
         scan.updated_at = _utc_now()
-        self._session.commit()
 
     def mark_webhook_terminal_sent(self, scan_id: str) -> None:
         scan = self._require_scan(scan_id)
         scan.webhook_terminal_sent = True
         scan.updated_at = _utc_now()
-        self._session.commit()
 
     def _require_scan(self, scan_id: str) -> Scan:
         scan = self._session.get(Scan, scan_id)

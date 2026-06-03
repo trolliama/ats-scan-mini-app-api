@@ -2,13 +2,13 @@ from uuid import uuid4
 
 import factory
 
-from db.scan_repository import ScanCreate
-from scan.schemas import (
+from core.models import (
     ALL_CATEGORY_KEYS,
     ATSScanResult,
     ATSIssue,
     CVContactItem,
     CVPreview,
+    ScanCreate,
 )
 
 

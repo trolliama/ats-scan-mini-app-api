@@ -11,4 +11,5 @@ prompt = PromptTemplate(
 
 
 def run_agent(query: str) -> str:
+    # Deferred: return AgentResult stub per ATS design
     return "Hello, world from the agent!"

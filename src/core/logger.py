@@ -4,7 +4,7 @@ import sys
 
 import structlog
 
-from config import settings
+from core.config import settings
 
 APP_LOGGER = "mini_app_api"
 _configured = False

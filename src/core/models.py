@@ -1,7 +1,7 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 ATSCategoryKey = Literal[
     "keywords",
@@ -29,22 +29,12 @@ ATSIssueSeverity = Literal["critical", "warning", "info"]
 CVContactType = Literal[
     "email", "phone", "location", "linkedin", "github", "website", "custom"
 ]
-
-
-class CreateScanRequest(BaseModel):
-    scan_id: UUID
-    session_id: UUID
-    file_key: str = Field(min_length=1)
-    original_filename: str = Field(min_length=1)
-    bucket: str = Field(min_length=1)
-
-
-class CreateScanResponse(BaseModel):
-    scan_id: UUID
-    status: Literal["pending"]
+ScanStatus = Literal["pending", "processing", "completed", "failed"]
 
 
 class ATSIssue(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     id: str
     category: str
     severity: ATSIssueSeverity
@@ -53,11 +43,15 @@ class ATSIssue(BaseModel):
 
 
 class CVContactItem(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     type: CVContactType
     value: str
 
 
 class CVExperienceEntry(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     company: str
     role: str
     location: str | None = None
@@ -66,12 +60,16 @@ class CVExperienceEntry(BaseModel):
 
 
 class CVEducationEntry(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     institution: str
     degree: str
     period: str
 
 
 class CVPreview(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     name: str
     headline: str | None = None
     contact: list[CVContactItem]
@@ -82,6 +80,8 @@ class CVPreview(BaseModel):
 
 
 class ATSScanResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     overall_score: int = Field(ge=0, le=100)
     category_scores: dict[ATSCategoryKey, int]
     missing_keywords: list[str]
@@ -89,11 +89,11 @@ class ATSScanResult(BaseModel):
     issues: list[ATSIssue]
     cv_preview: CVPreview
 
-  
-
 
 class AgentResult(BaseModel):
     """LLM output only — no cv_preview."""
+
+    model_config = ConfigDict(frozen=True)
 
     overall_score: int = Field(ge=0, le=100)
     category_scores: dict[ATSCategoryKey, int]
@@ -103,20 +103,32 @@ class AgentResult(BaseModel):
     job_title_detected: str | None = None
 
 
-class WebhookProcessingPayload(BaseModel):
-    scanId: str
-    status: Literal["processing"]
+class ScanCreate(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    scan_id: UUID
+    session_id: UUID
+    file_key: str = Field(min_length=1)
+    bucket: str = Field(min_length=1)
+    original_filename: str = Field(min_length=1)
 
 
-class WebhookCompletedPayload(BaseModel):
-    scanId: str
-    status: Literal["completed"]
-    atsScore: int
-    jobTitleDetected: str | None
-    result: ATSScanResult
+class ScanRecord(BaseModel):
+    model_config = ConfigDict(frozen=True)
 
-
-class WebhookFailedPayload(BaseModel):
-    scanId: str
-    status: Literal["failed"]
-    failureReason: str
+    id: str
+    session_id: str
+    file_key: str
+    bucket: str
+    original_filename: str
+    status: ScanStatus
+    ats_score: int | None = Field(default=None, ge=0, le=100)
+    job_title_detected: str | None
+    failure_reason: str | None
+    result: ATSScanResult | None
+    webhook_processing_sent: bool
+    webhook_terminal_sent: bool
+    created_at: str
+    updated_at: str
+    started_at: str | None
+    completed_at: str | None

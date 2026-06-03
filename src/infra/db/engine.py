@@ -3,7 +3,7 @@ from pathlib import Path
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from db.models import Base
+from infra.db.models import Base
 
 
 def ensure_db_directory(path: Path) -> None:
