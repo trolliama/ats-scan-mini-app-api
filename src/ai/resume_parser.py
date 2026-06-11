@@ -40,5 +40,12 @@ def extract_markdown_from_resume(content: bytes, filename: str) -> str:
 
 
 def extract_cv_preview(markdown: str) -> CVPreview:
-    """Deferred: ATS scan worker — heuristic CV preview extraction."""
-    raise NotImplementedError
+    return CVPreview(
+        name="",
+        headline=None,
+        contact=[],
+        summary=None,
+        experience=[],
+        education=[],
+        skills=None,
+    )

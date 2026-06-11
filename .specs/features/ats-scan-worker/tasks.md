@@ -2,7 +2,36 @@
 
 **Design**: `.specs/features/ats-scan-worker/design.md`  
 **Spec**: `.specs/features/ats-scan-worker/spec.md`  
-**Status**: Draft
+**Status**: In Progress (P1 foundation + Phase 2 I/O/stubs complete; pipeline pending)
+
+---
+
+## Progress
+
+| Task | Status | Notes |
+|------|--------|-------|
+| T1 | ✅ Done | `src/core/config.py`, `.env.example` |
+| T2 | ✅ Done | `pyproject.toml` runtime + dev deps |
+| T3 | ✅ Done | `src/infra/db/models.py`, `src/infra/db/engine.py` |
+| T4 | 🟡 Partial | Schemas in `src/core/models.py` + `src/infra/http/schemas.py`; `tests/unit/test_schemas.py` missing |
+| T5 | ✅ Done | `src/infra/db/scan_repository.py`; 8 integration tests pass |
+| T6 | ✅ Done | `src/infra/http/dependencies.py` (`verify_api_key`) |
+| T7 | ✅ Done | `src/infra/storage/s3.py`; 2 unit tests pass |
+| T8 | ✅ Done | `src/infra/webhooks/client.py`; 3 unit tests pass |
+| T9 | ✅ Done | `src/ai/agent.py` returns `AgentResult` stub; 2 unit tests pass |
+| T10 | ✅ Done | `extract_cv_preview` P1 stub; 2 unit tests pass |
+| T11 | ⬜ Pending | `src/core/services/scan_service.py` stubs |
+| T12 | ⬜ Pending | `src/infra/http/routes.py` empty; no `POST /scans` |
+| T13 | 🟡 Partial | Lifespan runs `init_db`; recovery deferred |
+| T14 | ⬜ Pending | — |
+| T15 | ⬜ Pending | — |
+| T16 | ⬜ Pending | — |
+| T17 | 🟡 Partial | `tests/integration/conftest.py` only; no root conftest / TestClient |
+| T18 | ⬜ Pending | `tests/http/start.http` still present |
+
+**MVP gate (P1):** T11–T13 remaining. Current suite: `poetry run pytest -q` → 17 passed.
+
+> **Path note:** Post-refactor (`706fbee`), task `Where` paths map to the new layout — e.g. `src/config.py` → `src/core/config.py`, `src/db/` → `src/infra/db/`, `src/scan/` → `src/core/services/` + `src/infra/http/`.
 
 ---
 
@@ -72,10 +101,10 @@ T13 → T17 → T18
 
 **Done when**:
 
-- [ ] `Settings` exposes all fields from design § Settings table
-- [ ] Missing required env vars raise `ValidationError` at startup
-- [ ] `.env.example` lists every new variable with comments
-- [ ] `poetry run python -c "from src.config import get_settings; get_settings()"` fails clearly without `.env` (manual smoke)
+- [x] `Settings` exposes all fields from design § Settings table
+- [x] Missing required env vars raise `ValidationError` at startup
+- [x] `.env.example` lists every new variable with comments
+- [x] `poetry run python -c "from src.config import get_settings; get_settings()"` fails clearly without `.env` (manual smoke)
 
 **Tests**: none (config layer — matrix allows deferral until conftest in T17)  
 **Gate**: quick
@@ -99,9 +128,9 @@ T13 → T17 → T18
 
 **Done when**:
 
-- [ ] `boto3`, `httpx`, and `sqlalchemy` in `[project].dependencies`
-- [ ] `mypy`, `black`, `isort` only in dev group
-- [ ] `poetry lock && poetry install` succeeds
+- [x] `boto3`, `httpx`, and `sqlalchemy` in `[project].dependencies`
+- [x] `mypy`, `black`, `isort` only in dev group
+- [x] `poetry lock && poetry install` succeeds
 
 **Tests**: none  
 **Gate**: build (`poetry install`)
@@ -125,10 +154,10 @@ T13 → T17 → T18
 
 **Done when**:
 
-- [ ] `Scan` model maps all columns from design (including webhook idempotency flags)
-- [ ] Index `idx_scans_status` defined on model
-- [ ] Calling `init_db()` twice is idempotent (no error)
-- [ ] Parent dir of `SQLITE_PATH` created if missing
+- [x] `Scan` model maps all columns from design (including webhook idempotency flags)
+- [x] Index `idx_scans_status` defined on model
+- [x] Calling `init_db()` twice is idempotent (no error)
+- [x] Parent dir of `SQLITE_PATH` created if missing
 
 **Tests**: none (tested indirectly via T5 repository tests and T17 conftest)  
 **Gate**: quick
@@ -152,18 +181,18 @@ T13 → T17 → T18
 
 **Done when**:
 
-- [ ] `CreateScanRequest` validates UUID fields; invalid UUID → validation error
-- [ ] `ATSScanResult` includes all 8 `ATSCategoryKey` values in stub-friendly defaults
-- [ ] Webhook DTOs use camelCase field names (`scanId`, `atsScore`, `failureReason`)
-- [ ] `AgentResult` excludes `cv_preview` (LLM output only)
+- [x] `CreateScanRequest` validates UUID fields; invalid UUID → validation error
+- [x] `ATSScanResult` includes all 8 `ATSCategoryKey` values in stub-friendly defaults
+- [x] Webhook DTOs use camelCase field names (`scanId`, `atsScore`, `failureReason`)
+- [x] `AgentResult` excludes `cv_preview` (LLM output only)
 
 **Tests**: unit  
 **Gate**: quick
 
 **Done when (tests)**:
 
-- [ ] `tests/test_schemas.py`: valid/invalid `CreateScanRequest`, `ATSScanResult` serialization round-trip
-- [ ] Gate check passes: `poetry run pytest -q tests/test_schemas.py`
+- [ ] `tests/unit/test_schemas.py`: valid/invalid `CreateScanRequest`, `ATSScanResult` serialization round-trip
+- [ ] Gate check passes: `poetry run pytest -q tests/unit/test_schemas.py`
 - [ ] Test count: ≥3 tests pass
 
 **Commit**: `feat(scan): add Pydantic schemas for scans and webhooks`
@@ -185,13 +214,13 @@ T13 → T17 → T18
 
 **Done when**:
 
-- [ ] `insert_pending` raises `DuplicateScanError` for duplicate PK
-- [ ] `list_incomplete` returns `pending` + `processing` rows
-- [ ] `mark_*` methods update timestamps (`started_at`, `completed_at`, `updated_at`)
-- [ ] `result_json` stores serialized `ATSScanResult`
-- [ ] `tests/integration/test_scan_repository.py`: insert, duplicate 409 path, list_incomplete, mark lifecycle
-- [ ] Gate check passes: `poetry run pytest -q tests/integration/test_scan_repository.py`
-- [ ] Test count: ≥5 tests pass
+- [x] `insert_pending` raises `DuplicateScanError` for duplicate PK
+- [x] `list_incomplete` returns `pending` + `processing` rows
+- [x] `mark_*` methods update timestamps (`started_at`, `completed_at`, `updated_at`)
+- [x] `result_json` stores serialized `ATSScanResult`
+- [x] `tests/integration/test_scan_repository.py`: insert, duplicate 409 path, list_incomplete, mark lifecycle
+- [x] Gate check passes: `poetry run pytest -q tests/integration/test_scan_repository.py`
+- [x] Test count: ≥5 tests pass (8 pass)
 
 **Tests**: unit  
 **Gate**: quick
@@ -215,10 +244,10 @@ T13 → T17 → T18
 
 **Done when**:
 
-- [ ] Missing header → 401
-- [ ] Wrong key → 401
-- [ ] Correct key → no exception
-- [ ] Unit-testable via `app.dependency_overrides`
+- [x] Missing header → 401
+- [x] Wrong key → 401
+- [x] Correct key → no exception
+- [x] Unit-testable via `app.dependency_overrides`
 
 **Tests**: none (covered in T12 route integration tests)  
 **Gate**: quick
@@ -242,11 +271,11 @@ T13 → T17 → T18
 
 **Done when**:
 
-- [ ] Client built from `endpoint_url`, credentials, region
-- [ ] 404 `ClientError` wrapped as `S3ObjectNotFoundError`
-- [ ] `tests/test_s3.py`: mock boto3 — happy path returns bytes; 404 raises typed error
-- [ ] Gate check passes: `poetry run pytest -q tests/test_s3.py`
-- [ ] Test count: ≥2 tests pass
+- [x] Client built from `endpoint_url`, credentials, region
+- [x] 404 `ClientError` wrapped as `S3ObjectNotFoundError`
+- [x] `tests/unit/test_s3.py`: mock boto3 — happy path returns bytes; 404 raises typed error
+- [x] Gate check passes: `poetry run pytest -q tests/unit/test_s3.py`
+- [x] Test count: ≥2 tests pass
 
 **Tests**: unit (mocked boto3)  
 **Gate**: quick
@@ -270,14 +299,14 @@ T13 → T17 → T18
 
 **Done when**:
 
-- [ ] Header format: `X-Webhook-Signature: sha256=<lowercase hex>`
-- [ ] Processing payload: `{ scanId, status: "processing" }`
-- [ ] Completed payload includes `atsScore`, `jobTitleDetected`, full `result`
-- [ ] Failed payload includes `failureReason`
-- [ ] Retries 3× on non-2xx / network error; logs error when exhausted; returns `False`
-- [ ] `tests/test_webhook.py`: HMAC correctness, single success, 3 retries on 500
-- [ ] Gate check passes: `poetry run pytest -q tests/test_webhook.py`
-- [ ] Test count: ≥3 tests pass
+- [x] Header format: `X-Webhook-Signature: sha256=<lowercase hex>`
+- [x] Processing payload: `{ scanId, status: "processing" }`
+- [x] Completed payload includes `atsScore`, `jobTitleDetected`, full `result`
+- [x] Failed payload includes `failureReason`
+- [x] Retries 3× on non-2xx / network error; logs error when exhausted; returns `False`
+- [x] `tests/unit/test_webhook.py`: HMAC correctness, single success, 3 retries on 500
+- [x] Gate check passes: `poetry run pytest -q tests/unit/test_webhook.py`
+- [x] Test count: ≥3 tests pass
 
 **Tests**: unit (mock httpx)  
 **Gate**: quick
@@ -301,12 +330,12 @@ T13 → T17 → T18
 
 **Done when**:
 
-- [ ] Signature returns `AgentResult` Pydantic model
-- [ ] All 8 category keys present at score 0
-- [ ] No LLM call in P1 stub
-- [ ] `tests/test_agent.py`: stub returns valid schema
-- [ ] Gate check passes: `poetry run pytest -q tests/test_agent.py`
-- [ ] Test count: ≥1 test passes
+- [x] Signature returns `AgentResult` Pydantic model
+- [x] All 8 category keys present at score 0
+- [x] No LLM call in P1 stub
+- [x] `tests/unit/test_agent.py`: stub returns valid schema
+- [x] Gate check passes: `poetry run pytest -q tests/unit/test_agent.py`
+- [x] Test count: ≥1 test passes
 
 **Tests**: unit  
 **Gate**: quick
@@ -330,11 +359,11 @@ T13 → T17 → T18
 
 **Done when**:
 
-- [ ] Returns full `CVPreview` shape (contact, experience, education arrays)
-- [ ] Completes synchronously with no network I/O
-- [ ] `tests/test_cv_preview.py`: required keys present; `name` is str (may be empty)
-- [ ] Gate check passes: `poetry run pytest -q tests/test_cv_preview.py`
-- [ ] Test count: ≥2 tests pass
+- [x] Returns full `CVPreview` shape (contact, experience, education arrays)
+- [x] Completes synchronously with no network I/O
+- [x] `tests/unit/test_cv_preview.py`: required keys present; `name` is str (may be empty)
+- [x] Gate check passes: `poetry run pytest -q tests/unit/test_cv_preview.py`
+- [x] Test count: ≥2 tests pass
 
 **Tests**: unit  
 **Gate**: quick
@@ -364,12 +393,12 @@ T13 → T17 → T18
 - [ ] On any exception: SQLite `failed` + terminal failed webhook; `failure_reason=str(exc)`
 - [ ] Does not revert SQLite on webhook exhaustion (ATS-20)
 - [ ] No `print(markdown)` — debug log uses length only (ATS-27)
-- [ ] `tests/test_process_scan.py`: mock S3/agent/webhook; happy path + S3 404 + parse error + recovery skip processing webhook
-- [ ] Gate check passes: `poetry run pytest -q tests/test_process_scan.py`
+- [ ] `tests/integration/test_process_scan.py`: mock S3/agent/webhook; happy path + S3 404 + parse error + recovery skip processing webhook
+- [ ] Gate check passes: `poetry run pytest -q tests/integration/test_process_scan.py`
 - [ ] Test count: ≥4 tests pass
 
 **Tests**: integration (mocked externals, real temp SQLite)  
-**Gate**: full (`poetry run pytest -v tests/test_process_scan.py`)
+**Gate**: full (`poetry run pytest -v tests/integration/test_process_scan.py`)
 
 **Commit**: `feat(scan): implement process_scan pipeline`
 
@@ -396,8 +425,8 @@ T13 → T17 → T18
 - [ ] Duplicate `scan_id` → 409
 - [ ] `POST /resume/analyze` and `GET /resume/analyze/{id}` return 404
 - [ ] No module-level `jobs` dict
-- [ ] `tests/test_scans_route.py`: 202, 401, 409 paths via TestClient + dependency overrides
-- [ ] Gate check passes: `poetry run pytest -q tests/test_scans_route.py`
+- [ ] `tests/integration/test_scans_route.py`: 202, 401, 409 paths via TestClient + dependency overrides
+- [ ] Gate check passes: `poetry run pytest -q tests/integration/test_scans_route.py`
 - [ ] Test count: ≥3 tests pass
 
 **Tests**: integration  
@@ -422,11 +451,11 @@ T13 → T17 → T18
 
 **Done when**:
 
-- [ ] Startup calls `init_db(engine)` and logs incomplete scan count
+- [x] Startup calls `init_db(engine)` and logs incomplete scan count *(init_db wired; logging/recovery deferred)*
 - [ ] Each pending/processing scan enqueued via `BackgroundTasks`
 - [ ] Log "No incomplete scans to recover" when none found
-- [ ] `tests/test_recovery.py`: insert pending + processing scans; simulate lifespan startup; assert re-enqueued (mock `process_scan` or assert eventual terminal state)
-- [ ] Gate check passes: `poetry run pytest -q tests/test_recovery.py`
+- [ ] `tests/integration/test_recovery.py`: insert pending + processing scans; simulate lifespan startup; assert re-enqueued (mock `process_scan` or assert eventual terminal state)
+- [ ] Gate check passes: `poetry run pytest -q tests/integration/test_recovery.py`
 - [ ] Test count: ≥2 tests pass
 
 **Tests**: integration  
@@ -456,8 +485,8 @@ T13 → T17 → T18
 - [ ] LLM failure raises exception (pipeline marks scan failed)
 - [ ] Missing `OPENAI_API_KEY` fails at startup when agent mode requires it
 - [ ] Issue `id` generated (UUID4) if LLM omits
-- [ ] `tests/test_agent.py` updated: mock OpenAI/LangChain; schema validation
-- [ ] Gate check passes: `poetry run pytest -q tests/test_agent.py`
+- [ ] `tests/unit/test_agent.py` updated: mock OpenAI/LangChain; schema validation
+- [ ] Gate check passes: `poetry run pytest -q tests/unit/test_agent.py`
 - [ ] Test count: ≥3 tests pass (including mock failure path)
 
 **Tests**: unit (mocked LLM)  
@@ -485,8 +514,8 @@ T13 → T17 → T18
 - [ ] Extracts `name`, `contact`, `summary`, structured sections from sample markdown fixture
 - [ ] Returns `name=None` gracefully when not found (not an error)
 - [ ] Completes in < 100ms on fixture (no LLM, no network)
-- [ ] `tests/test_cv_preview.py` updated with real resume markdown fixture
-- [ ] Gate check passes: `poetry run pytest -q tests/test_cv_preview.py`
+- [ ] `tests/unit/test_cv_preview.py` updated with real resume markdown fixture
+- [ ] Gate check passes: `poetry run pytest -q tests/unit/test_cv_preview.py`
 - [ ] Test count: ≥4 tests pass
 
 **Tests**: unit  
@@ -537,12 +566,12 @@ T13 → T17 → T18
 
 **Done when**:
 
-- [ ] Each test gets isolated SQLAlchemy session (in-memory `StaticPool` or `tmp_path` file DB)
+- [x] Each test gets isolated SQLAlchemy session (in-memory `StaticPool` or `tmp_path` file DB) — `tests/integration/conftest.py`
 - [ ] `Settings` overridable via fixture / env monkeypatch
 - [ ] `TestClient` fixture with `app.dependency_overrides` for API key
 - [ ] Refactor earlier test files to use shared fixtures (no duplicate setup)
-- [ ] Gate check passes: `poetry run pytest -q`
-- [ ] All prior tests still pass
+- [x] Gate check passes: `poetry run pytest -q`
+- [x] All prior tests still pass
 
 **Tests**: none (infrastructure)  
 **Gate**: full
@@ -609,26 +638,26 @@ Phase 5 (Sequential):
 
 ## Task Granularity Check
 
-| Task | Scope | Status |
-|------|-------|--------|
-| T1: Settings + .env.example | 2 config files | ✅ Cohesive config deliverable |
-| T2: pyproject.toml deps | 1 file | ✅ Granular |
-| T3: models.py + engine.py | 2 modules | ✅ Granular |
-| T4: schemas.py | 1 module | ✅ Granular |
-| T5: scan_repository.py | 1 class | ✅ Granular |
-| T6: api_key.py | 1 dependency | ✅ Granular |
-| T7: s3.py | 1 client function | ✅ Granular |
-| T8: webhook.py | 1 module | ✅ Granular |
-| T9: agent stub | 1 function refactor | ✅ Granular |
-| T10: cv_preview stub | 1 function | ✅ Granular |
-| T11: service.py pipeline | 1 orchestrator | ✅ Granular |
-| T12: POST /scans + legacy removal | 1 route file refactor | ✅ Granular |
-| T13: lifespan recovery | app.py + main wiring | ✅ Cohesive |
-| T14: LLM agent | 1 function | ✅ Granular |
-| T15: cv_preview heuristics | 1 function | ✅ Granular |
-| T16: P2 integration verify | test adjustments | ✅ Granular |
-| T17: conftest | 1 fixture file | ✅ Granular |
-| T18: manual smoke | 1 http file | ✅ Granular |
+| Task | Scope | Granularity | Completion |
+|------|-------|-------------|------------|
+| T1: Settings + .env.example | 2 config files | ✅ Cohesive config deliverable | ✅ Done |
+| T2: pyproject.toml deps | 1 file | ✅ Granular | ✅ Done |
+| T3: models.py + engine.py | 2 modules | ✅ Granular | ✅ Done |
+| T4: schemas.py | 1 module | ✅ Granular | 🟡 Partial (no unit tests) |
+| T5: scan_repository.py | 1 class | ✅ Granular | ✅ Done |
+| T6: api_key.py | 1 dependency | ✅ Granular | ✅ Done |
+| T7: s3.py | 1 client function | ✅ Granular | ✅ Done |
+| T8: webhook.py | 1 module | ✅ Granular | ✅ Done |
+| T9: agent stub | 1 function refactor | ✅ Granular | ✅ Done |
+| T10: cv_preview stub | 1 function | ✅ Granular | ✅ Done |
+| T11: service.py pipeline | 1 orchestrator | ✅ Granular | ⬜ Pending |
+| T12: POST /scans + legacy removal | 1 route file refactor | ✅ Granular | ⬜ Pending |
+| T13: lifespan recovery | app.py + main wiring | ✅ Cohesive | 🟡 Partial |
+| T14: LLM agent | 1 function | ✅ Granular | ⬜ Pending |
+| T15: cv_preview heuristics | 1 function | ✅ Granular | ⬜ Pending |
+| T16: P2 integration verify | test adjustments | ✅ Granular | ⬜ Pending |
+| T17: conftest | 1 fixture file | ✅ Granular | 🟡 Partial |
+| T18: manual smoke | 1 http file | ✅ Granular | ⬜ Pending |
 
 ---
 
@@ -730,9 +759,11 @@ Phase 5 (Sequential):
 
 ## Execute Notes
 
-**Suggested first session:** T1 → T2 → T3 → T4 → T5 → T6 (foundation complete, ~6 atomic commits).
+**Foundation (T1–T6):** Complete. T4 schema unit tests still outstanding.
 
-**MVP gate (P1 done):** After T13, `poetry run pytest -v` passes and manual `POST /scans` returns 202 with stub pipeline reaching SQLite `completed`.
+**Next session:** T11 → T12 → T13 (pipeline + API + recovery).
+
+**MVP gate (P1 done):** After T13, `poetry run pytest -v` passes and manual `POST /scans` returns 202 with stub pipeline reaching SQLite `completed`. Currently blocked on T11–T12.
 
 **P2 gate:** After T16, real LLM + cv_preview heuristics integrated.
 
