@@ -9,6 +9,7 @@ Conventions and design principles for AI agents working on this codebase.
 This project uses **pytest** for unit and integration tests, with **Factory Boy** for test data.
 
 Key rules at a glance:
+
 - Test function names: `test_<behaviour>_when_<context>` (behaviour first)
 - Every test function requires a one-line docstring stating the expected outcome
 - Never round-trip through the component under test — verify side effects via an independent path (e.g. raw SQL, not another method on the same class)
@@ -35,11 +36,15 @@ Note the separation: factory builds the data, repository exercises the behaviour
 
 For the full testing spec (fixtures, factory usage, coverage matrix, gate commands) see [`.specs/codebase/TESTING.md`](.specs/codebase/TESTING.md).
 
+### SKILL
+
+Whenever creating a test you must use the tdd skill located on [`.cursor/skills/tdd`](.cursor/skills/tdd)
+
 ---
 
 ## Code Design
 
-> Rooted in *A Philosophy of Software Design* — Ousterhout.
+> Rooted in _A Philosophy of Software Design_ — Ousterhout.
 
 The single most important goal: **reduce cognitive load for the next developer**.
 
@@ -71,11 +76,13 @@ def insert_pending(scan: ScanCreate) -> None:
 ```
 
 When designing a module, ask:
+
 - Can I reduce the number of methods or parameters?
 - Can I move complexity from the caller into the implementation?
 - Does calling this feel simple from the outside?
 
 **Warning signs of a shallow module:**
+
 - A wrapper that does nothing but delegate to another function
 - Parameters that expose internal mechanism (engine, table name, session)
 - Callers that always call two or three methods in the same fixed sequence — that sequence should be one method
@@ -85,14 +92,14 @@ When designing a module, ask:
 
 Good names communicate **purpose and behaviour**, not type or mechanism.
 
-| Layer | Convention | Example |
-|-------|-----------|---------|
-| Files / modules | `snake_case` | `scan_repository.py` |
-| Functions / methods | `snake_case`, verb-led | `insert_pending()`, `extract_markdown_from_resume()` |
-| Variables | `snake_case`, intent-revealing | `scan_id`, `file_key` |
-| Constants | `UPPER_SNAKE_CASE` | `SUPPORTED_EXTENSIONS` |
-| Classes / models | `PascalCase` | `ScanCreate`, `ATSScanResult` |
-| Exceptions | `PascalCase` + `Error` suffix | `DuplicateScanError` |
+| Layer               | Convention                     | Example                                              |
+| ------------------- | ------------------------------ | ---------------------------------------------------- |
+| Files / modules     | `snake_case`                   | `scan_repository.py`                                 |
+| Functions / methods | `snake_case`, verb-led         | `insert_pending()`, `extract_markdown_from_resume()` |
+| Variables           | `snake_case`, intent-revealing | `scan_id`, `file_key`                                |
+| Constants           | `UPPER_SNAKE_CASE`             | `SUPPORTED_EXTENSIONS`                               |
+| Classes / models    | `PascalCase`                   | `ScanCreate`, `ATSScanResult`                        |
+| Exceptions          | `PascalCase` + `Error` suffix  | `DuplicateScanError`                                 |
 
 A name should make the reader slightly smarter about what the code does — if the name requires a comment to explain it, the name is wrong.
 
@@ -107,6 +114,7 @@ def process_scan(scan_id: str) -> None:
 ```
 
 Additional naming rules:
+
 - **Be specific, not generic.** `manager`, `handler`, `helper`, `utils`, `data` are almost always wrong — they describe nothing. Name the domain concept instead (`WebhookClient`, `ResumeParser`).
 - **Be consistent.** If one function is `get_by_id`, the next one is not `fetch_by_scan_id` or `load`. Pick a verb and stay with it across the module.
 - **Booleans read as assertions.** Prefix with `is_`, `has_`, or `should_`: `is_complete`, `has_failed`, `should_retry`.
@@ -117,6 +125,7 @@ Additional naming rules:
 Every piece of information a caller must hold in their head to use a module is cognitive load. Abstractions that **hide information** reduce that load.
 
 Techniques:
+
 - **Encapsulate decisions** — if the caller must choose a format, a strategy, or an encoding, pull that decision into the module
 - **Provide sensible defaults** — callers should only supply what varies
 - **Keep coupling low** — a change inside a module should not ripple to its callers
@@ -200,9 +209,9 @@ For the full naming and code organisation conventions see [`.specs/codebase/CONV
 
 ## Comments & Documentation
 
-> Also rooted in *A Philosophy of Software Design* — Ousterhout.
+> Also rooted in _A Philosophy of Software Design_ — Ousterhout.
 
-**The primary goal of a comment is to convey *what* is happening and *why* — not *how*.**
+**The primary goal of a comment is to convey _what_ is happening and _why_ — not _how_.**
 The code already shows how. A comment that just re-states the code in English adds noise, not signal.
 
 ```python
@@ -218,6 +227,7 @@ scan_id = str(uuid4())  # use string PK to match the value stored by the Next.js
 Write a comment only when **the information is not already obvious from the code**. If a reader with domain knowledge can understand the code in a few seconds, no comment is needed.
 
 Write a comment when:
+
 - The reason for a decision would surprise a future reader
 - A non-obvious constraint or invariant must hold
 - The behaviour of a function is richer than its signature implies
@@ -234,7 +244,7 @@ class Scan(Base):
     webhook_sent: Mapped[bool]  # True once terminal webhook delivered; prevents duplicate delivery
 ```
 
-**Implementation comments** — explain *why*, not *what*. Go inside function bodies only when the logic is genuinely surprising or fragile.
+**Implementation comments** — explain _why_, not _what_. Go inside function bodies only when the logic is genuinely surprising or fragile.
 
 ```python
 # Retry once: transient S3 latency spikes are common in the first 200ms after upload
@@ -265,6 +275,7 @@ Use precision where it changes caller behaviour; use intuition everywhere else.
 Use **Google-style docstrings** consistently across files, classes, methods, and functions.
 
 **Module docstring** (file-level, optional but valuable for non-obvious modules):
+
 ```python
 """Structured logging configuration.
 
@@ -275,6 +286,7 @@ configure structlog directly in other modules.
 ```
 
 **Function / method docstring:**
+
 ```python
 def extract_markdown_from_resume(content: bytes, filename: str) -> str:
     """Convert a PDF or DOCX resume to plain Markdown.
@@ -292,6 +304,7 @@ def extract_markdown_from_resume(content: bytes, filename: str) -> str:
 ```
 
 **Class docstring** (describe the abstraction, not the constructor):
+
 ```python
 class ScanRepository:
     """Persistence layer for ATS scan lifecycle.
@@ -303,6 +316,7 @@ class ScanRepository:
 ```
 
 **Inline comments** — use sparingly, only for implementation-level notes:
+
 ```python
 # SQLite doesn't enforce FK constraints by default; enable per-connection
 engine.execute("PRAGMA foreign_keys = ON")
@@ -313,6 +327,7 @@ engine.execute("PRAGMA foreign_keys = ON")
 Some comments are actively harmful because they create noise that readers learn to skip, which means the signal-to-noise ratio of the whole file drops.
 
 **Never comment:**
+
 - Code that is self-explanatory from its name and types
 - Commented-out code — delete it; git history exists for a reason
 - What a function does when the name already says it (`# returns the scan` above `return scan`)
