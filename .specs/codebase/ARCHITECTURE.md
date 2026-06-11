@@ -57,10 +57,11 @@ flowchart TB
 **Location:** `src/db/`
 **Purpose:** Durable scan lifecycle with startup recovery.
 **Implementation:**
+
 - `models.py` — `Scan` ORM model with status, result JSON, webhook idempotency flags, timestamps.
 - `engine.py` — `create_db_engine`, `init_db`, `get_session_factory`.
 - `scan_repository.py` — **stub only** (`class ScanRepository: pass`); integration tests define expected behaviour.
-**Example:** `Scan` table with index `idx_scans_status`.
+  **Example:** `Scan` table with index `idx_scans_status`.
 
 ### Pydantic domain schemas
 
@@ -132,18 +133,18 @@ App import
 
 **Structure:**
 
-| Module / Package | Responsibility |
-|------------------|----------------|
-| `main.py` | HTTP routes (`POST /scans`), lifespan, app bootstrap |
-| `app.py` | FastAPI factory + lifespan |
-| `config.py` | Settings via pydantic-settings |
-| `logger.py` | structlog setup and helpers |
-| `resume_parser.py` | File validation and MarkItDown conversion |
-| `agent.py` | LLM agent (stub) |
-| `db/models.py` | SQLAlchemy `Scan` model |
-| `db/engine.py` | SQLite engine factory and schema init |
-| `db/scan_repository.py` | Scan persistence (stub) |
-| `scan/schemas.py` | Pydantic DTOs for scans, results, webhooks |
+| Module / Package        | Responsibility                                       |
+| ----------------------- | ---------------------------------------------------- |
+| `main.py`               | HTTP routes (`POST /scans`), lifespan, app bootstrap |
+| `app.py`                | FastAPI factory + lifespan                           |
+| `config.py`             | Settings via pydantic-settings                       |
+| `logger.py`             | structlog setup and helpers                          |
+| `resume_parser.py`      | File validation and MarkItDown conversion            |
+| `agent.py`              | LLM agent (stub)                                     |
+| `db/models.py`          | SQLAlchemy `Scan` model                              |
+| `db/engine.py`          | SQLite engine factory and schema init                |
+| `db/scan_repository.py` | Scan persistence (stub)                              |
+| `scan/schemas.py`       | Pydantic DTOs for scans, results, webhooks           |
 
 **Module boundaries:** Repository handles persistence; service layer orchestrates S3 fetch, parsing, agent, and webhooks. Only the repository interface is test-defined so far.
 
