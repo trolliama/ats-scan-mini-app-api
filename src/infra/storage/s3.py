@@ -1,12 +1,12 @@
 import boto3
 from botocore.exceptions import ClientError
 
-from core.config import get_settings
+from core import config
 from core.exceptions import S3ObjectNotFoundError
 
 
 def fetch_object(bucket: str, file_key: str) -> bytes:
-    settings = get_settings()
+    settings = config.get_settings()
     client = boto3.client(
         "s3",
         endpoint_url=settings.s3_endpoint,

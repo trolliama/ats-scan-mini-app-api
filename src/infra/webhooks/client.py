@@ -7,6 +7,7 @@ import structlog
 from pydantic import BaseModel
 
 from core.config import Settings
+from core.enums import ScanStatus
 from core.models import ATSScanResult
 from infra.http.schemas import (
     WebhookCompletedPayload,
@@ -54,7 +55,9 @@ def _send_webhook(payload: BaseModel, settings: Settings) -> bool:
 
 
 def send_processing(scan_id: str, settings: Settings) -> bool:
-    payload = WebhookProcessingPayload(scanId=scan_id, status="processing")
+    payload = WebhookProcessingPayload(
+        scanId=scan_id, status=ScanStatus.PROCESSING
+    )
     return _send_webhook(payload, settings)
 
 
@@ -67,7 +70,7 @@ def send_completed(
 ) -> bool:
     payload = WebhookCompletedPayload(
         scanId=scan_id,
-        status="completed",
+        status=ScanStatus.COMPLETED,
         atsScore=ats_score,
         jobTitleDetected=job_title_detected,
         result=result,
@@ -78,7 +81,7 @@ def send_completed(
 def send_failed(scan_id: str, failure_reason: str, settings: Settings) -> bool:
     payload = WebhookFailedPayload(
         scanId=scan_id,
-        status="failed",
+        status=ScanStatus.FAILED,
         failureReason=failure_reason,
     )
     return _send_webhook(payload, settings)

@@ -4,7 +4,7 @@ import sys
 
 import structlog
 
-from core.config import settings
+from core import config
 
 APP_LOGGER = "mini_app_api"
 _configured = False
@@ -86,7 +86,7 @@ def _renderer(dev: bool) -> structlog.types.Processor:
     if not dev:
         return structlog.processors.JSONRenderer()
 
-    color = settings.log_color_enabled and not os.environ.get("NO_COLOR")
+    color = config.get_settings().log_color_enabled and not os.environ.get("NO_COLOR")
     return DevRenderer(color)
 
 
@@ -95,7 +95,7 @@ def _configure_structlog(shared: list[structlog.types.Processor]) -> None:
         processors=shared
         + [structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
         wrapper_class=structlog.make_filtering_bound_logger(
-            settings.log_level_value
+            config.get_settings().log_level_value
         ),
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
@@ -122,14 +122,14 @@ def _build_handler(
 def _configure_stdlib_logging(handler: logging.Handler) -> None:
     root = logging.getLogger()
     root.handlers.clear()
-    root.setLevel(settings.log_level_value)
+    root.setLevel(config.get_settings().log_level_value)
     root.addHandler(handler)
 
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         lg = logging.getLogger(name)
         lg.handlers.clear()
         lg.propagate = True
-        lg.setLevel(settings.log_level_value)
+        lg.setLevel(config.get_settings().log_level_value)
 
 
 def configure_logging() -> None:
@@ -139,7 +139,7 @@ def configure_logging() -> None:
         return
     _configured = True
 
-    dev = settings.log_env == "dev"
+    dev = config.get_settings().log_env == "dev"
     shared = _shared_processors(dev)
     renderer = _renderer(dev)
 

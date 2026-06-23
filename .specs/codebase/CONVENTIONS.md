@@ -61,7 +61,7 @@ When designing interfaces, ask:
 **Types/Models:**
 - PascalCase for Pydantic models, SQLAlchemy models, and custom classes
 - Examples: `Scan`, `CreateScanRequest`, `ATSScanResult`, `Settings`, `DevRenderer`
-- Type aliases via assignment: `LogLevel = Literal[...]`, `ATSCategoryKey = Literal[...]`
+- Type aliases via assignment: `LogLevel = StrEnum`, `ATSCategoryKey = StrEnum`
 - Exception classes: PascalCase with `Error` suffix — e.g. `DuplicateScanError`
 - Dataclass-like inputs: PascalCase nouns — e.g. `ScanCreate`
 
@@ -112,7 +112,12 @@ from tests.factories import ATSScanResultFactory, ScanCreateFactory
 
 ## Type Safety
 
-**Approach:** Python type hints throughout; Pydantic for request/response schemas; SQLAlchemy 2.x `Mapped[]` annotations; `Literal` for constrained string enums; no mypy config file in repo (mypy in dev deps).
+**Approach:** Python type hints throughout; Pydantic for request/response schemas; SQLAlchemy 2.x `Mapped[]` annotations; `enum.StrEnum` for constrained string enums; no mypy config file in repo (mypy in dev deps).
+
+**Enum placement:**
+- Domain enums (`ScanStatus`, `ATSCategoryKey`, etc.) live in `core/enums.py`
+- Config enums (`LogLevel`, `LogEnv`) live in `core/config.py` next to `Settings`
+- Pydantic models import enum types from `core.enums` (or re-export via `core.models` for model-adjacent types)
 
 Examples:
 - `def extract_markdown_from_resume(content: bytes, filename: str) -> str`

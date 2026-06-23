@@ -1,35 +1,29 @@
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ATSCategoryKey = Literal[
-    "keywords",
-    "formatting",
-    "content",
-    "professional_experience",
-    "header_contact",
-    "professional_summary",
-    "skills",
-    "education",
-]
-
-ALL_CATEGORY_KEYS: tuple[ATSCategoryKey, ...] = (
-    "keywords",
-    "formatting",
-    "content",
-    "professional_experience",
-    "header_contact",
-    "professional_summary",
-    "skills",
-    "education",
+from core.enums import (
+    ATSCategoryKey,
+    ATSIssueSeverity,
+    CVContactType,
+    ScanStatus,
 )
 
-ATSIssueSeverity = Literal["critical", "warning", "info"]
-CVContactType = Literal[
-    "email", "phone", "location", "linkedin", "github", "website", "custom"
+__all__ = [
+    "ATSCategoryKey",
+    "ATSIssue",
+    "ATSIssueSeverity",
+    "ATSScanResult",
+    "AgentResult",
+    "CVContactItem",
+    "CVContactType",
+    "CVEducationEntry",
+    "CVExperienceEntry",
+    "CVPreview",
+    "ScanCreate",
+    "ScanRecord",
+    "ScanStatus",
 ]
-ScanStatus = Literal["pending", "processing", "completed", "failed"]
 
 
 class ATSIssue(BaseModel):

@@ -1,8 +1,8 @@
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from core.enums import ScanStatus
 from core.models import ATSScanResult
 
 
@@ -16,17 +16,17 @@ class CreateScanRequest(BaseModel):
 
 class CreateScanResponse(BaseModel):
     scan_id: UUID
-    status: Literal["pending"]
+    status: ScanStatus
 
 
 class WebhookProcessingPayload(BaseModel):
     scanId: str
-    status: Literal["processing"]
+    status: ScanStatus
 
 
 class WebhookCompletedPayload(BaseModel):
     scanId: str
-    status: Literal["completed"]
+    status: ScanStatus
     atsScore: int
     jobTitleDetected: str | None
     result: ATSScanResult
@@ -34,5 +34,5 @@ class WebhookCompletedPayload(BaseModel):
 
 class WebhookFailedPayload(BaseModel):
     scanId: str
-    status: Literal["failed"]
+    status: ScanStatus
     failureReason: str

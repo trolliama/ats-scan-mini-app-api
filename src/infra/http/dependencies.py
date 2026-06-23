@@ -2,7 +2,7 @@ from collections.abc import Generator
 
 from fastapi import Header, HTTPException, Request
 
-from core.config import settings
+from core import config
 from infra.db.unit_of_work import UoWContext, unit_of_work
 
 
@@ -12,6 +12,10 @@ def get_uow(request: Request) -> Generator[UoWContext, None, None]:
         yield uow
 
 
-def verify_api_key(x_api_key: str = Header(alias="X-API-Key")) -> None:
-    if x_api_key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+def verify_api_key(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> None:
+    if x_api_key != config.get_settings().api_key:
+        raise HTTPException(
+            status_code=401, detail="Invalid or missing API key"
+        )

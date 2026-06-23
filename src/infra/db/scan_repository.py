@@ -7,8 +7,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.exceptions import DuplicateScanError, ScanNotFound
+from core.enums import ScanStatus
 from core.models import ATSScanResult, ScanCreate, ScanRecord
 from infra.db.models import Scan
+
+_INCOMPLETE_SCAN_STATUSES = (ScanStatus.PENDING, ScanStatus.PROCESSING)
 
 
 def _utc_now() -> str:
@@ -25,7 +28,7 @@ def _to_record(scan: Scan) -> ScanRecord:
         file_key=scan.file_key,
         bucket=scan.bucket,
         original_filename=scan.original_filename,
-        status=scan.status,  # type: ignore[arg-type]
+        status=ScanStatus(scan.status),
         ats_score=scan.ats_score,
         job_title_detected=scan.job_title_detected,
         failure_reason=scan.failure_reason,
@@ -51,7 +54,7 @@ class ScanRepository:
             file_key=record.file_key,
             bucket=record.bucket,
             original_filename=record.original_filename,
-            status="pending",
+            status=ScanStatus.PENDING,
             webhook_processing_sent=False,
             webhook_terminal_sent=False,
             created_at=now,
@@ -71,14 +74,14 @@ class ScanRepository:
         return _to_record(scan)
 
     def list_incomplete(self) -> list[ScanRecord]:
-        stmt = select(Scan).where(Scan.status.in_(("pending", "processing")))
+        stmt = select(Scan).where(Scan.status.in_(_INCOMPLETE_SCAN_STATUSES))
         scans = self._session.scalars(stmt).all()
         return [_to_record(scan) for scan in scans]
 
     def mark_processing(self, scan_id: str) -> ScanRecord:
         scan = self._require_scan(scan_id)
         now = _utc_now()
-        scan.status = "processing"
+        scan.status = ScanStatus.PROCESSING
         scan.started_at = now
         scan.updated_at = now
         return _to_record(scan)
@@ -92,7 +95,7 @@ class ScanRepository:
     ) -> None:
         scan = self._require_scan(scan_id)
         now = _utc_now()
-        scan.status = "completed"
+        scan.status = ScanStatus.COMPLETED
         scan.ats_score = result.overall_score
         scan.job_title_detected = job_title
         scan.failure_reason = None
@@ -103,7 +106,7 @@ class ScanRepository:
     def mark_failed(self, scan_id: str, reason: str) -> None:
         scan = self._require_scan(scan_id)
         now = _utc_now()
-        scan.status = "failed"
+        scan.status = ScanStatus.FAILED
         scan.failure_reason = reason
         scan.result_json = None
         scan.ats_score = None

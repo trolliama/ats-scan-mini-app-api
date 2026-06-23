@@ -1,14 +1,24 @@
 import logging
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-LogEnv = Literal["dev", "prod"]
+
+class LogLevel(StrEnum):
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
+
+
+class LogEnv(StrEnum):
+    DEV = "dev"
+    PROD = "prod"
 
 
 class Settings(BaseSettings):
@@ -17,8 +27,8 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
     )
 
-    log_level: LogLevel = "INFO"
-    log_env: LogEnv = "dev"
+    log_level: LogLevel = LogLevel.INFO
+    log_env: LogEnv = LogEnv.DEV
     log_color: bool = True
 
     api_key: str
@@ -39,7 +49,7 @@ class Settings(BaseSettings):
     @property
     def log_color_enabled(self) -> bool:
         """ANSI colors only in dev; disabled in prod regardless of LOG_COLOR."""
-        return self.log_env == "dev" and self.log_color
+        return self.log_env == LogEnv.DEV and self.log_color
 
 
 @lru_cache
@@ -47,4 +57,5 @@ def get_settings() -> Settings:
     return Settings()
 
 
-settings = get_settings()
+def reset_settings_cache() -> None:
+    get_settings.cache_clear()
