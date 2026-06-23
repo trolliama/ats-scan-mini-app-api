@@ -36,7 +36,10 @@ async def lifespan(app: FastAPI):
 
 
 def get_app() -> FastAPI:
-    app = FastAPI(lifespan=lifespan)
+    lifespan_ctx = (
+        None if config.get_settings().skip_app_lifespan else lifespan
+    )
+    app = FastAPI(lifespan=lifespan_ctx)
     register_exception_handlers(app)
     app.include_router(router)
     return app

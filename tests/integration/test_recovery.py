@@ -20,7 +20,9 @@ class TestRecoverIncompleteScans:
         self, db_session_factory: sessionmaker[Session], uow: UoWContext
     ) -> None:
         """recover_incomplete_scans returns ids for pending and processing scans only."""
-        pending, processing, completed, failed = ScanCreateFactory.build_batch(4)
+        pending, processing, completed, failed = ScanCreateFactory.build_batch(
+            4
+        )
 
         for scan in (pending, processing, completed, failed):
             uow.scans.insert_pending(scan)
@@ -56,9 +58,15 @@ class TestLifespanRecovery:
 
         with (
             patch("infra.http.app.create_db_engine", return_value=mock_engine),
-            patch("infra.http.app.get_session_factory", return_value=db_session_factory),
+            patch(
+                "infra.http.app.get_session_factory",
+                return_value=db_session_factory,
+            ),
             patch("infra.http.app.init_db"),
-            patch("infra.http.app.recover_incomplete_scans", return_value=scan_ids),
+            patch(
+                "infra.http.app.recover_incomplete_scans",
+                return_value=scan_ids,
+            ),
             patch("infra.http.app.process_scan") as mock_process,
             patch("infra.http.app.asyncio.create_task") as mock_create_task,
         ):
@@ -79,7 +87,9 @@ class TestLifespanRecovery:
         for coro in thread_calls:
             asyncio.run(coro)
         assert mock_process.call_count == len(scan_ids)
-        assert {call.args[0] for call in mock_process.call_args_list} == set(scan_ids)
+        assert {call.args[0] for call in mock_process.call_args_list} == set(
+            scan_ids
+        )
         mock_engine.dispose.assert_called_once()
 
     def test_does_not_enqueue_when_no_incomplete_scans(
@@ -90,7 +100,10 @@ class TestLifespanRecovery:
 
         with (
             patch("infra.http.app.create_db_engine", return_value=mock_engine),
-            patch("infra.http.app.get_session_factory", return_value=db_session_factory),
+            patch(
+                "infra.http.app.get_session_factory",
+                return_value=db_session_factory,
+            ),
             patch("infra.http.app.init_db"),
             patch("infra.http.app.recover_incomplete_scans", return_value=[]),
             patch("infra.http.app.process_scan") as mock_process,

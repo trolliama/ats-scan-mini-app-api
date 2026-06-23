@@ -1,4 +1,3 @@
-import os
 from collections.abc import Generator
 from pathlib import Path
 
@@ -15,14 +14,17 @@ from tests.settings import make_test_settings
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
-@pytest.fixture(autouse=True)
-def settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
-    """Default test Settings, applied to config.get_settings() for every test."""
+@pytest.fixture(scope="session", autouse=True)
+def settings() -> Generator[Settings, None, None]:
+    """Replace config.get_settings() for the entire test session."""
     test_settings = make_test_settings()
-    config.reset_settings_cache()
+    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(config, "get_settings", lambda: test_settings)
-    os.environ["MOTO_S3_CUSTOM_ENDPOINTS"] = test_settings.s3_endpoint
-    return test_settings
+    monkeypatch.setenv("MOTO_S3_CUSTOM_ENDPOINTS", test_settings.s3_endpoint)
+    config.reset_settings_cache()
+    yield test_settings
+    monkeypatch.undo()
+    config.reset_settings_cache()
 
 
 @pytest.fixture

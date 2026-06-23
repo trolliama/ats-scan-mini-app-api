@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     api_key: str
     sqlite_path: Path = Path("data/scans.db")
+    skip_app_lifespan: bool = False
     next_webhook_url: str
     webhook_secret: str
     s3_endpoint: str
@@ -58,4 +59,6 @@ def get_settings() -> Settings:
 
 
 def reset_settings_cache() -> None:
-    get_settings.cache_clear()
+    cache_clear = getattr(get_settings, "cache_clear", None)
+    if cache_clear is not None:
+        cache_clear()

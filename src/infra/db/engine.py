@@ -2,8 +2,11 @@ from pathlib import Path
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from infra.db.models import Base
+
+_MEMORY_SQLITE_PATH = Path(":memory:")
 
 
 def ensure_db_directory(path: Path) -> None:
@@ -11,6 +14,12 @@ def ensure_db_directory(path: Path) -> None:
 
 
 def create_db_engine(path: Path) -> Engine:
+    if path == _MEMORY_SQLITE_PATH:
+        return create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
     ensure_db_directory(path)
     return create_engine(f"sqlite:///{path}")
 

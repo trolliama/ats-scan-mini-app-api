@@ -12,7 +12,9 @@ from tests.factories import ScanCreateFactory
 
 
 @pytest.fixture
-def api_client(db_session_factory: sessionmaker[Session]) -> Generator[TestClient, None, None]:
+def api_client(
+    db_session_factory: sessionmaker[Session],
+) -> Generator[TestClient, None, None]:
     app = get_app()
     app.state.session_factory = db_session_factory
     with (
@@ -33,7 +35,9 @@ def _scan_payload(**overrides: object) -> dict[str, str]:
     }
 
 
-def _auth_headers(settings: Settings, *, api_key: str | None = None) -> dict[str, str]:
+def _auth_headers(
+    settings: Settings, *, api_key: str | None = None
+) -> dict[str, str]:
     return {"X-API-Key": api_key if api_key is not None else settings.api_key}
 
 
@@ -53,7 +57,9 @@ class TestCreateScanRoute:
         assert body["scan_id"] == payload["scan_id"]
         assert body["status"] == "pending"
 
-    def test_returns_401_when_api_key_is_missing(self, api_client: TestClient) -> None:
+    def test_returns_401_when_api_key_is_missing(
+        self, api_client: TestClient
+    ) -> None:
         """Missing X-API-Key header returns 401."""
         payload = _scan_payload()
 
@@ -101,7 +107,9 @@ class TestCreateScanRoute:
 
         assert response.status_code == 422
 
-    def test_returns_404_for_legacy_analyze_routes(self, api_client: TestClient) -> None:
+    def test_returns_404_for_legacy_analyze_routes(
+        self, api_client: TestClient
+    ) -> None:
         """Legacy /resume/analyze routes no longer exist."""
         job_id = str(uuid4())
 
