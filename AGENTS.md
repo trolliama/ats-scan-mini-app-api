@@ -1,44 +1,80 @@
 # Agent Guidelines
 
-Conventions and design principles for AI agents working on this codebase.
+Conventions and design principles for AI agents. Project-specific details live in linked docs and a short **Project-specific conventions** subsection where needed.
 
 ---
 
 ## Testing
 
-This project uses **pytest** for unit and integration tests, with **Factory Boy** for test data.
+We follow the **classical (Detroit) school** of testing — not the London (mockist) school.
 
-Key rules at a glance:
+| | Classical | London (avoid for integration tests) |
+|---|---|---|
+| **Goal** | Verify behaviour through real collaborators | Verify behaviour by replacing collaborators with test doubles |
+| **Doubles** | Only at true system boundaries (network, storage, clock) | At every module boundary, including internal collaborators |
+| **Integration tests** | Exercise real code paths that compose across modules | Stub the orchestrator's dependencies and test wiring in isolation |
+| **Confidence** | A passing test means the parts actually work together | A passing test only means the orchestrator invoked the expected doubles |
 
-- Test function names: `test_<behaviour>_when_<context>` (behaviour first)
-- Every test function requires a one-line docstring stating the expected outcome
-- Never round-trip through the component under test — verify side effects via an independent path (e.g. raw SQL, not another method on the same class)
-- Build test data via factories in `tests/factories/`, never inline dict assembly
+### Integration tests must stay close to reality
 
-A well-structured integration test looks like this:
+An integration test verifies that **multiple real modules compose correctly** — not that one unit called another unit you replaced with a stub.
 
-```python
-class TestScanRepository:
-    def test_persists_retrievable_scan_when_insert_pending(
-        self, db_session: Session
-    ) -> None:
-        """Inserting a pending scan persists input fields and default lifecycle values."""
-        scan = ScanCreateFactory.build()
+**The core problem:** when you stub dependencies *on the orchestrator* (the function or class that coordinates the workflow), every module it imports is bypassed. The HTTP client, storage adapter, and parser never run. The test can pass even when signing, serialization, error mapping, or retry logic are broken — because that code was never executed.
 
-        ScanRepository(db_session).insert_pending(scan)
+```
+// Bad — doubles on the orchestrator; infrastructure never runs
+stub(orchestrator.fetchRemoteData).returns(cannedBytes)
+stub(orchestrator.parseDocument).returns(cannedText)
+stub(orchestrator.notifyDownstream).returns(success)
 
-        row = _fetch_scan(db_session, scan.id)  # raw SQL — not repo.get_by_id
-        assert row["status"] == "pending"
-        assert row["file_key"] == scan.file_key
+orchestrator.runJob(id)
+
+// only the orchestrator's control flow was tested
 ```
 
-Note the separation: factory builds the data, repository exercises the behaviour, raw SQL verifies the result.
+```
+// Good — real modules; only external systems are faked
+fakeStorage.seed(fixtureFile)
+fakeHttpServer.acceptPosts()
 
-For the full testing spec (fixtures, factory usage, coverage matrix, gate commands) see [`.specs/codebase/TESTING.md`](.specs/codebase/TESTING.md).
+orchestrator.runJob(id)
 
-### SKILL
+assert fakeHttpServer.receivedCount == 2   // real client built the request
+assert db.readRow(id).status == "completed" // independent verification path
+```
 
-Whenever creating a test you must use the tdd skill located on [`.cursor/skills/tdd`](.cursor/skills/tdd)
+In the good example, the storage adapter, parser, and notification client all execute real code. Only the **external systems they talk to** are replaced.
+
+### Where to fake vs. what to run real
+
+| Layer | Integration test | Unit test |
+|---|---|---|
+| Database / persistence | Real (in-process or in-memory) | Not used, or mocked |
+| Domain logic and orchestration | Real | Real (single unit under test) |
+| Infrastructure adapters (HTTP, storage, messaging) | **Real** | Real or isolated |
+| External systems (remote APIs, cloud services, filesystem) | Fake at the boundary | Fake at the boundary |
+| Slow or non-deterministic third parties | Stub or fixture | Stub |
+
+**Rule of thumb:** do not stub functions imported into the unit under test. Replace the **transport** the adapter uses (HTTP server fake, in-memory storage, fixture file on disk) so the adapter's own logic still runs.
+
+Unit tests are the place to isolate a single module with finer-grained doubles when testing one concern (retry policy, error translation, edge cases). Integration tests should trust that those modules work and focus on **composition**.
+
+### Verification
+
+Do not round-trip through the component under test. When exercising write path A, assert the outcome via an independent read path B — not another method on the same class that shares the same implementation bugs.
+
+Example: after `repository.insert(record)`, verify with a raw query or a separate test helper — not `repository.getById()`, unless `getById` itself is what you are testing.
+
+### Key rules
+
+- Name tests by outcome first: `test_<behaviour>_when_<context>`
+- One-line docstring per test stating what must hold, not how the test is wired
+- Build test data via factories or builders — not ad-hoc inline assembly
+- Integration tests: real collaborators + boundary fakes; never stub the orchestrator's imports
+
+### Project-specific conventions
+
+This repo uses pytest, Factory Boy, and a TDD skill. For fixtures, factory usage, gate commands, and directory layout see [`.specs/codebase/TESTING.md`](.specs/codebase/TESTING.md). When creating tests here, use the TDD skill at [`.cursor/skills/tdd`](.cursor/skills/tdd).
 
 ---
 
@@ -57,7 +93,7 @@ A **deep module** hides a large, complex implementation behind a small, simple i
 │    Small Interface   │  ← few methods, simple params
 ├──────────────────────┤
 │                      │
-│   Rich, Hidden       │  ← sessions, retries, SQL, encoding…
+│   Rich, Hidden       │  ← sessions, retries, persistence, encoding…
 │   Implementation     │
 │                      │
 └──────────────────────┘
@@ -65,14 +101,12 @@ A **deep module** hides a large, complex implementation behind a small, simple i
 
 A **shallow module** is the opposite — large interface, thin implementation. It forces callers to manage complexity that the module should absorb.
 
-```python
-# Bad — shallow: caller manages all the details
-def save(engine, table_name, row_dict, conflict_column):
-    ...
+```
+// Bad — shallow: caller manages mechanism
+save(connection, tableName, rowMap, conflictColumn)
 
-# Good — deep: caller just supplies domain objects
-def insert_pending(scan: ScanCreate) -> None:
-    ...
+// Good — deep: caller supplies domain intent
+insertPending(order)
 ```
 
 When designing a module, ask:
@@ -84,41 +118,32 @@ When designing a module, ask:
 **Warning signs of a shallow module:**
 
 - A wrapper that does nothing but delegate to another function
-- Parameters that expose internal mechanism (engine, table name, session)
-- Callers that always call two or three methods in the same fixed sequence — that sequence should be one method
-- A class whose methods are one-to-one with its fields (glorified struct with no behaviour)
+- Parameters that expose internal mechanism (connection handles, table names, raw encodings)
+- Callers that always invoke two or three methods in the same fixed sequence — that sequence should be one method
+- A type whose methods are one-to-one with its fields (a struct with no behaviour)
 
 ### Naming
 
 Good names communicate **purpose and behaviour**, not type or mechanism.
 
-| Layer               | Convention                     | Example                                              |
-| ------------------- | ------------------------------ | ---------------------------------------------------- |
-| Files / modules     | `snake_case`                   | `scan_repository.py`                                 |
-| Functions / methods | `snake_case`, verb-led         | `insert_pending()`, `extract_markdown_from_resume()` |
-| Variables           | `snake_case`, intent-revealing | `scan_id`, `file_key`                                |
-| Constants           | `UPPER_SNAKE_CASE`             | `SUPPORTED_EXTENSIONS`                               |
-| Classes / models    | `PascalCase`                   | `ScanCreate`, `ATSScanResult`                        |
-| Exceptions          | `PascalCase` + `Error` suffix  | `DuplicateScanError`                                 |
-
 A name should make the reader slightly smarter about what the code does — if the name requires a comment to explain it, the name is wrong.
 
-```python
-# Bad — what is "d"? what does "proc" mean?
-def proc(d):
-    ...
+```
+// Bad — what is "d"? what does "proc" mean?
+proc(d)
 
-# Good — intent is clear without needing to read the body
-def process_scan(scan_id: str) -> None:
-    ...
+// Good — intent is clear without reading the body
+processOrder(orderId)
 ```
 
 Additional naming rules:
 
-- **Be specific, not generic.** `manager`, `handler`, `helper`, `utils`, `data` are almost always wrong — they describe nothing. Name the domain concept instead (`WebhookClient`, `ResumeParser`).
-- **Be consistent.** If one function is `get_by_id`, the next one is not `fetch_by_scan_id` or `load`. Pick a verb and stay with it across the module.
-- **Booleans read as assertions.** Prefix with `is_`, `has_`, or `should_`: `is_complete`, `has_failed`, `should_retry`.
-- **Avoid encodings in the name.** `scan_list`, `scan_dict`, `scan_str` — the type annotation already carries that information.
+- **Be specific, not generic.** Names like `Manager`, `Handler`, `Helper`, `Utils`, `Data` describe nothing. Name the domain concept instead (`NotificationClient`, `DocumentParser`).
+- **Be consistent.** If one operation is `getById`, the next is not `fetchByOrderId` or `load`. Pick a verb and stay with it across the module.
+- **Booleans read as assertions.** Prefer `isComplete`, `hasFailed`, `shouldRetry` over bare `complete` or `flag`.
+- **Avoid type encodings in the name.** `orderList`, `orderMap`, `orderStr` — the type system already carries that information.
+
+Follow the project's established casing and file-naming conventions; do not invent a parallel style.
 
 ### Reducing Cognitive Load
 
@@ -130,14 +155,12 @@ Techniques:
 - **Provide sensible defaults** — callers should only supply what varies
 - **Keep coupling low** — a change inside a module should not ripple to its callers
 
-```python
-# Bad — caller must know about encoding, content-type, and retries
-def send(url, body_bytes, content_type, retries):
-    ...
+```
+// Bad — caller must know encoding, content-type, and retries
+send(url, bodyBytes, contentType, retries)
 
-# Good — caller supplies domain intent; module handles the rest
-def send_webhook(scan_id: str, result: ATSScanResult) -> None:
-    ...
+// Good — caller supplies domain intent; module handles the rest
+sendNotification(orderId, result)
 ```
 
 ### General Purpose vs Special Purpose
@@ -148,14 +171,14 @@ The test: "could this module serve a second, slightly different caller without c
 
 **Pull complexity downwards.** When a design decision can live in the module or in the caller, it should live in the module. Callers shouldn't need to know about edge cases the module can handle itself.
 
-```python
-# Bad — caller must know that get_by_id returns None and handle it
-scan = repo.get_by_id(scan_id)
-if scan is None:
-    raise HTTPException(status_code=404)
+```
+// Bad — caller must know that lookup returns null and handle it
+order = repo.getById(id)
+if order == null:
+    respondNotFound()
 
-# Good — module raises a domain exception; HTTP layer maps it once
-scan = repo.get_by_id_or_raise(scan_id)  # raises ScanNotFound internally
+// Good — module raises a domain error; the transport layer maps it once
+order = repo.getByIdOrRaise(id)  // throws NotFound internally
 ```
 
 ### Designing Errors
@@ -163,47 +186,44 @@ scan = repo.get_by_id_or_raise(scan_id)  # raises ScanNotFound internally
 Errors are part of the interface. A messy error design makes every caller more complex.
 
 **1. Design errors out of existence.**
-The best way to handle an exception is to not throw one. Redesign the API so the error condition cannot occur.
+The best way to handle an error is to make the condition unrepresentable or return a neutral value when absence is expected.
 
-```python
-# Bad — callers must guard against None everywhere
-def get_by_id(scan_id: str) -> Scan | None: ...
+```
+// Bad — callers must guard against null everywhere
+getById(id) -> Entity | null
 
-# Good — return a neutral value when absence is expected behaviour
-def list_incomplete() -> list[Scan]: ...  # returns [] instead of None
+// Good — absence is not an error for this operation
+listIncomplete() -> List<Entity>   // empty list, not null
 ```
 
 **2. Mask exceptions.**
-Detect and handle errors at the lowest level where you have enough context, so callers never see them.
+Detect and handle errors at the lowest level where you have enough context, then translate to domain errors. Callers should not see vendor-specific failures.
 
-```python
-# Bad — leaks S3-specific errors into the caller
-def download(key: str) -> bytes:
-    return s3.get_object(Bucket=bucket, Key=key)["Body"].read()  # raises ClientError
+```
+// Bad — leaks storage SDK errors to callers
+download(key)  // throws VendorClientError
 
-# Good — translate to a domain error at the boundary
-def download(key: str) -> bytes:
-    try:
-        return s3.get_object(Bucket=bucket, Key=key)["Body"].read()
-    except ClientError as exc:
-        raise ResumeNotFoundError(key) from exc
+// Good — translate at the boundary
+download(key)  // throws DocumentNotFound(key) wrapping vendor error
 ```
 
 **3. Exception aggregation.**
-Handle all exceptions of a given class in one place. In background tasks, a single top-level `except Exception` catches everything, marks the scan failed, and logs with full traceback — callers never see raw exceptions.
+Handle failures of a given scope in one place. In background jobs, a single top-level handler catches everything, records failure state, notifies downstream, and logs with full context — individual steps do not each define recovery policy.
 
-```python
-# Good — one handler for all background task failures
-async def process_scan(scan_id: str) -> None:
+```
+// Good — one handler for all background job failures
+runJob(id):
     try:
         ...
-    except Exception:
-        logger.exception("Scan failed", scan_id=scan_id)
-        await repo.mark_failed(scan_id, reason=str(exc))
-        await webhook.send_failed(scan_id)
+    catch (any):
+        log.exception("job failed", id)
+        repo.markFailed(id, reason)
+        notifier.sendFailed(id)
 ```
 
-For the full naming and code organisation conventions see [`.specs/codebase/CONVENTIONS.md`](.specs/codebase/CONVENTIONS.md).
+### Project-specific conventions
+
+For naming tables, file layout, and language-specific style in this repo see [`.specs/codebase/CONVENTIONS.md`](.specs/codebase/CONVENTIONS.md).
 
 ---
 
@@ -212,14 +232,14 @@ For the full naming and code organisation conventions see [`.specs/codebase/CONV
 > Also rooted in _A Philosophy of Software Design_ — Ousterhout.
 
 **The primary goal of a comment is to convey _what_ is happening and _why_ — not _how_.**
-The code already shows how. A comment that just re-states the code in English adds noise, not signal.
+The code already shows how. A comment that restates the code in prose adds noise, not signal.
 
-```python
-# Bad — restates the code
-scan_id = str(uuid4())  # generate a UUID and convert it to string
+```
+// Bad — restates the code
+id = generateUuid()  // generate a UUID
 
-# Good — explains intent that the code cannot show
-scan_id = str(uuid4())  # use string PK to match the value stored by the Next.js frontend
+// Good — explains intent the code cannot show
+id = generateUuid()  // string PK to match the identifier stored by the upstream client
 ```
 
 ### When to Comment
@@ -230,126 +250,94 @@ Write a comment when:
 
 - The reason for a decision would surprise a future reader
 - A non-obvious constraint or invariant must hold
-- The behaviour of a function is richer than its signature implies
+- The behaviour of a unit is richer than its signature or type implies
 
 ### Categories of Comments
 
-**Interface comments** — the most important kind. Document the function's contract: what it does, its parameters, what it returns, and what can go wrong. A caller must be able to use the function correctly by reading only this comment.
+**Interface comments** — the most important kind. Document the unit's contract: what it does, its inputs, what it returns, and what can go wrong. A caller must be able to use it correctly by reading only this comment.
 
-**Data structure member comments** — document fields that carry non-obvious meaning. The type alone is rarely enough when there are invariants, formats, or domain constraints attached.
+**Data member comments** — document fields that carry non-obvious meaning. The type alone is rarely enough when there are invariants, formats, or domain constraints attached.
 
-```python
-class Scan(Base):
-    overall_score: Mapped[int]  # ATS score 0–100; -1 means scoring failed
-    webhook_sent: Mapped[bool]  # True once terminal webhook delivered; prevents duplicate delivery
+```
+class JobRecord {
+    score: int       // 0–100; -1 means scoring failed
+    notified: bool   // true once terminal notification delivered; prevents duplicates
+}
 ```
 
-**Implementation comments** — explain _why_, not _what_. Go inside function bodies only when the logic is genuinely surprising or fragile.
+**Implementation comments** — explain _why_, not _what_. Use inside function bodies only when the logic is genuinely surprising or fragile.
 
-```python
-# Retry once: transient S3 latency spikes are common in the first 200ms after upload
-for attempt in range(2):
+```
+// Retry once: transient latency spikes are common immediately after upload
+for attempt in 0..1:
     ...
 ```
 
-**Cross-module comments** — document coupling between packages. Use a `# NOTE:` block at the top of the file or in the module docstring when a design decision spans two or more modules and would be invisible to a reader looking at only one.
+**Cross-module comments** — document coupling between packages. Place a NOTE at the top of a file or in the module doc when a design decision spans modules and would be invisible to a reader looking at only one.
 
-```python
-# NOTE: This module must not import from src.scan — the dependency arrow
-# is scan → db, not the other way around. Keep it that way.
+```
+// NOTE: This module must not import from persistence — dependency is
+// domain → persistence, not the reverse. Keep it that way.
 ```
 
 ### Comments as Abstraction
 
-A good interface comment does for the reader what a deep module does for the caller: it hides implementation details and provides a higher-level model of the behaviour. A caller who reads only the docstring should be able to use the function correctly without reading its body.
+A good interface comment does for the reader what a deep module does for the caller: it hides implementation details and provides a higher-level model of the behaviour. A caller who reads only the documentation should be able to use the unit correctly without reading its body.
 
-This is why **precision and intuition serve different levels**:
+**Precision and intuition serve different levels:**
 
-- **Intuition comments** (higher level): "Parse the resume and return structured markdown" — gives the reader a mental model without burying them in detail. Best for function and class docstrings.
-- **Precision comments** (lower level): "Raises `ResumeParseError` if the file is password-protected" — exact, actionable, matters for callers. Include these when the detail affects correct usage or error handling.
+- **Intuition** (higher level): "Parse the document and return structured text" — mental model without detail. Best for public API docs.
+- **Precision** (lower level): "Throws ParseError if the file is password-protected" — exact, actionable, matters for callers. Include when the detail affects correct usage or error handling.
 
 Use precision where it changes caller behaviour; use intuition everywhere else.
 
-### Python Docstring Format
+### Documentation Format
 
-Use **Google-style docstrings** consistently across files, classes, methods, and functions.
+Use **one consistent documentation style** across the project — whatever the language's idiomatic form is (docstrings, JSDoc, JavaDoc, XML comments). Match what existing code in the repo already uses.
 
-**Module docstring** (file-level, optional but valuable for non-obvious modules):
+Every public unit should document:
 
-```python
-"""Structured logging configuration.
+- **Purpose** — what it does, in one sentence
+- **Inputs and outputs** — including units, formats, and valid ranges where non-obvious
+- **Errors** — what can fail and under what conditions
+- **Invariants** — constraints the caller must uphold or can rely on
 
-Configures structlog with JSON output in production and a coloured
-console renderer in development. Import `get_logger` from here; do not
-configure structlog directly in other modules.
-"""
-```
+Keep module-level docs for non-obvious packages: what belongs here, what must not be imported from elsewhere, and the abstraction boundary the package enforces.
 
-**Function / method docstring:**
-
-```python
-def extract_markdown_from_resume(content: bytes, filename: str) -> str:
-    """Convert a PDF or DOCX resume to plain Markdown.
-
-    Args:
-        content: Raw file bytes.
-        filename: Original filename used to detect format by extension.
-
-    Returns:
-        Markdown string with headings and bullet points preserved.
-
-    Raises:
-        ResumeParseError: If the file format is unsupported or unreadable.
-    """
-```
-
-**Class docstring** (describe the abstraction, not the constructor):
-
-```python
-class ScanRepository:
-    """Persistence layer for ATS scan lifecycle.
-
-    Wraps all SQL operations for the `scans` table. Callers work with
-    domain objects (`ScanCreate`, `Scan`) and domain exceptions
-    (`DuplicateScanError`, `ScanNotFound`); SQL details never leak out.
-    """
-```
-
-**Inline comments** — use sparingly, only for implementation-level notes:
-
-```python
-# SQLite doesn't enforce FK constraints by default; enable per-connection
-engine.execute("PRAGMA foreign_keys = ON")
-```
+Inline comments are for implementation-level notes only — use sparingly.
 
 ### What Not to Comment
 
-Some comments are actively harmful because they create noise that readers learn to skip, which means the signal-to-noise ratio of the whole file drops.
+Some comments are actively harmful because they create noise that readers learn to skip.
 
 **Never comment:**
 
 - Code that is self-explanatory from its name and types
-- Commented-out code — delete it; git history exists for a reason
-- What a function does when the name already says it (`# returns the scan` above `return scan`)
-- TODOs without an owner or a ticket — turn them into GitHub issues
+- Commented-out code — delete it; version control exists for a reason
+- What a function does when the name already says it
+- TODOs without an owner or a ticket — turn them into tracked issues
 
-```python
-# Bad — all noise
-def get_scan(scan_id: str) -> Scan:
-    # get the scan from the repository
-    scan = self.repo.get_by_id(scan_id)
-    # return it
-    return scan
+```
+// Bad — all noise
+getOrder(id):
+    // get the order from the repository
+    order = repo.getById(id)
+    // return it
+    return order
 
-# Good — no comment needed; the code is already clear
-def get_scan(scan_id: str) -> Scan:
-    return self.repo.get_by_id(scan_id)
+// Good — no comment needed
+getOrder(id):
+    return repo.getById(id)
 ```
 
 ### What Makes a Good Comment
 
 1. **Adds information the code cannot.** Explains intent, not mechanics.
 2. **Written at a higher level of abstraction than the code it describes.** Elevates the reader's mental model.
-3. **Precise where precision matters.** Exact parameter constraints, exception conditions, and invariants should be stated exactly.
-4. **Short.** One to three sentences is almost always enough for a function docstring.
+3. **Precise where precision matters.** Exact constraints, error conditions, and invariants stated exactly.
+4. **Short.** One to three sentences is almost always enough for a public API doc.
 5. **Kept up to date.** A wrong comment is worse than no comment — it actively misleads. When code changes, update its comments.
+
+### Project-specific conventions
+
+This repo uses Google-style Python docstrings. For examples and formatting rules see [`.specs/codebase/CONVENTIONS.md`](.specs/codebase/CONVENTIONS.md).
