@@ -2,8 +2,8 @@ from uuid import uuid4
 
 import factory
 
+from core.enums import ATSCategoryKey, ATSIssueSeverity, CVContactType
 from core.models import (
-    ALL_CATEGORY_KEYS,
     ATSScanResult,
     ATSIssue,
     CVContactItem,
@@ -29,7 +29,7 @@ class CVPreviewFactory(factory.Factory):
 
     name = "Jane Doe"
     contact = factory.LazyFunction(
-        lambda: [CVContactItem(type="email", value="jane@example.com")]
+        lambda: [CVContactItem(type=CVContactType.EMAIL, value="jane@example.com")]
     )
     experience = factory.LazyFunction(list)
     education = factory.LazyFunction(list)
@@ -41,7 +41,7 @@ class ATSIssueFactory(factory.Factory):
 
     id = "issue-1"
     category = "keywords"
-    severity = "warning"
+    severity = ATSIssueSeverity.WARNING
     description = "Missing keyword"
     solution = "Add keyword"
 
@@ -51,7 +51,9 @@ class ATSScanResultFactory(factory.Factory):
         model = ATSScanResult
 
     overall_score = 72
-    category_scores = factory.LazyFunction(lambda: {key: 70 for key in ALL_CATEGORY_KEYS})
+    category_scores = factory.LazyFunction(
+        lambda: {key: 70 for key in ATSCategoryKey.all_keys()}
+    )
     missing_keywords = ["kubernetes"]
     found_keywords = ["python"]
     issues = factory.LazyFunction(lambda: [ATSIssueFactory.build()])

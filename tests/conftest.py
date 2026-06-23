@@ -1,15 +1,62 @@
 import os
+from collections.abc import Generator
+from pathlib import Path
 
-_TEST_ENV_DEFAULTS = {
-    "API_KEY": "test-api-key",
-    "NEXT_WEBHOOK_URL": "http://localhost:3000/api/ats/webhook",
-    "WEBHOOK_SECRET": "test-webhook-secret",
-    "S3_ENDPOINT": "http://localhost:9000",
-    "S3_BUCKET": "test-bucket",
-    "S3_ACCESS_KEY": "test-access-key",
-    "S3_SECRET_KEY": "test-secret-key",
-    "S3_REGION": "us-east-1",
-}
+import boto3
+import httpx
+import pytest
+import respx
+from moto import mock_aws
 
-for _key, _value in _TEST_ENV_DEFAULTS.items():
-    os.environ.setdefault(_key, _value)
+from core import config
+from core.config import Settings
+from tests.settings import make_test_settings
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture(autouse=True)
+def settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
+    """Default test Settings, applied to config.get_settings() for every test."""
+    test_settings = make_test_settings()
+    config.reset_settings_cache()
+    monkeypatch.setattr(config, "get_settings", lambda: test_settings)
+    os.environ["MOTO_S3_CUSTOM_ENDPOINTS"] = test_settings.s3_endpoint
+    return test_settings
+
+
+@pytest.fixture
+def mock_aws_s3() -> Generator[None, None, None]:
+    with mock_aws():
+        yield
+
+
+@pytest.fixture
+def s3_client(mock_aws_s3: None, settings: Settings) -> Generator:
+    client = boto3.client(
+        "s3",
+        endpoint_url=settings.s3_endpoint,
+        aws_access_key_id=settings.s3_access_key,
+        aws_secret_access_key=settings.s3_secret_key,
+        region_name=settings.s3_region,
+    )
+    yield client
+
+
+@pytest.fixture
+def sample_resume_bytes() -> bytes:
+    return (FIXTURES_DIR / "sample_resume.pdf").read_bytes()
+
+
+@pytest.fixture
+def blank_resume_bytes() -> bytes:
+    return (FIXTURES_DIR / "blank_resume.pdf").read_bytes()
+
+
+@pytest.fixture
+def webhook_respx(settings: Settings) -> Generator[respx.Router, None, None]:
+    with respx.mock(assert_all_called=False) as router:
+        router.post(settings.next_webhook_url).mock(
+            return_value=httpx.Response(200)
+        )
+        yield router

@@ -1,4 +1,5 @@
-from core.models import ALL_CATEGORY_KEYS, AgentResult
+from core.enums import ATSCategoryKey
+from core.models import AgentResult
 from ai.agent import run_agent
 
 
@@ -14,7 +15,7 @@ def test_category_scores_contain_all_keys_at_zero_when_stub():
     result = run_agent("resume markdown")
 
     assert result.overall_score == 0
-    assert set(result.category_scores.keys()) == set(ALL_CATEGORY_KEYS)
+    assert set(result.category_scores.keys()) == set(ATSCategoryKey.all_keys())
     assert all(score == 0 for score in result.category_scores.values())
     assert result.missing_keywords == []
     assert result.found_keywords == []

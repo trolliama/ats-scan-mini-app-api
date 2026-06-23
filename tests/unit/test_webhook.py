@@ -1,12 +1,17 @@
 import hashlib
 import hmac
-from contextlib import contextmanager
-from collections.abc import Iterator
-from unittest.mock import MagicMock, patch
+import logging
+import time
+from datetime import timedelta
 
+import httpx
 import pytest
+import respx
+from freezegun import freeze_time
 
 from core.config import Settings
+from core.enums import ScanStatus
+from core.logger import configure_logging
 from infra.http.schemas import (
     WebhookCompletedPayload,
     WebhookFailedPayload,
@@ -20,55 +25,28 @@ _ATS_SCORE = 72
 _JOB_TITLE = "Software Engineer"
 _FAILURE_REASON = "S3 object not found: resumes/missing.pdf"
 _ATS_RESULT = ATSScanResultFactory.build(overall_score=_ATS_SCORE)
+_TOTAL_RETRY_SLEEP = 13
+
+
+@pytest.fixture(autouse=True)
+def _configure_logging() -> None:
+    configure_logging()
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return Settings(
-        api_key="test-api-key",
-        next_webhook_url="http://localhost:3000/api/ats/webhook",
-        webhook_secret="test-webhook-secret",
-        s3_endpoint="http://localhost:9000",
-        s3_bucket="test-bucket",
-        s3_access_key="test-access-key",
-        s3_secret_key="test-secret-key",
-        s3_region="us-east-1",
-    )
+def webhook_retry_clock(monkeypatch: pytest.MonkeyPatch):
+    """Instant retry backoff with a fake clock (freezegun tick, no real sleep)."""
+    with freeze_time("2024-01-01 00:00:00") as frozen:
+        def _instant_sleep(seconds: float) -> None:
+            frozen.tick(delta=timedelta(seconds=seconds))
 
-
-@contextmanager
-def _successful_http_client() -> Iterator[MagicMock]:
-    mock_response = MagicMock()
-    mock_response.is_success = True
-    mock_client = MagicMock()
-    mock_client.post.return_value = mock_response
-    mock_client.__enter__ = MagicMock(return_value=mock_client)
-    mock_client.__exit__ = MagicMock(return_value=False)
-
-    with patch("infra.webhooks.client.httpx.Client", return_value=mock_client):
-        yield mock_client
-
-
-@contextmanager
-def _failing_http_client() -> Iterator[tuple[MagicMock, MagicMock, MagicMock]]:
-    mock_response = MagicMock()
-    mock_response.is_success = False
-    mock_client = MagicMock()
-    mock_client.post.return_value = mock_response
-    mock_client.__enter__ = MagicMock(return_value=mock_client)
-    mock_client.__exit__ = MagicMock(return_value=False)
-
-    with (
-        patch("infra.webhooks.client.httpx.Client", return_value=mock_client),
-        patch("infra.webhooks.client.time.sleep") as mock_sleep,
-        patch("infra.webhooks.client._logger.error") as mock_log_error,
-    ):
-        yield mock_client, mock_sleep, mock_log_error
+        monkeypatch.setattr("infra.webhooks.client.time.sleep", _instant_sleep)
+        yield frozen
 
 
 def _assert_delivered_with_hmac(
     result: bool,
-    mock_client: MagicMock,
+    call: httpx.Request,
     settings: Settings,
     expected_body: bytes,
 ) -> None:
@@ -80,26 +58,22 @@ def _assert_delivered_with_hmac(
     )
 
     assert result is True
-    mock_client.post.assert_called_once()
-    call_kwargs = mock_client.post.call_args
-    assert call_kwargs.args[0] == settings.next_webhook_url
-    assert call_kwargs.kwargs["content"] == expected_body
-    assert (
-        call_kwargs.kwargs["headers"]["X-Webhook-Signature"]
-        == expected_signature
-    )
+    assert call.url == settings.next_webhook_url
+    assert call.content == expected_body
+    assert call.headers["X-Webhook-Signature"] == expected_signature
 
 
 def _assert_retries_exhausted(
     result: bool,
-    mock_client: MagicMock,
-    mock_sleep: MagicMock,
-    mock_log_error: MagicMock,
+    route: respx.Route,
+    caplog: pytest.LogCaptureFixture,
+    *,
+    elapsed: float,
 ) -> None:
     assert result is False
-    assert mock_client.post.call_count == 4
-    assert mock_sleep.call_args_list == [((1,),), ((3,),), ((9,),)]
-    mock_log_error.assert_called_once()
+    assert route.call_count == 4
+    assert elapsed == _TOTAL_RETRY_SLEEP
+    assert "webhook_delivery_exhausted" in caplog.text
 
 
 class TestSendProcessing:
@@ -108,29 +82,37 @@ class TestSendProcessing:
     ) -> None:
         """send_processing returns True and posts a valid HMAC-SHA256 signature on 2xx."""
         expected_body = WebhookProcessingPayload(
-            scanId=_SCAN_ID, status="processing"
+            scanId=_SCAN_ID, status=ScanStatus.PROCESSING
         ).model_dump_json().encode()
 
-        with _successful_http_client() as mock_client:
+        with respx.mock:
+            route = respx.post(settings.next_webhook_url).mock(
+                return_value=httpx.Response(200)
+            )
             result = send_processing(_SCAN_ID, settings)
 
         _assert_delivered_with_hmac(
-            result, mock_client, settings, expected_body
+            result, route.calls.last.request, settings, expected_body
         )
 
     def test_returns_false_when_post_always_returns_500(
-        self, settings: Settings
+        self,
+        settings: Settings,
+        caplog: pytest.LogCaptureFixture,
+        webhook_retry_clock,
     ) -> None:
         """send_processing returns False after 4 attempts when every response is non-2xx."""
-        with _failing_http_client() as (
-            mock_client,
-            mock_sleep,
-            mock_log_error,
-        ):
+        caplog.set_level(logging.ERROR)
+        start = time.time()
+
+        with respx.mock:
+            route = respx.post(settings.next_webhook_url).mock(
+                return_value=httpx.Response(500)
+            )
             result = send_processing(_SCAN_ID, settings)
 
         _assert_retries_exhausted(
-            result, mock_client, mock_sleep, mock_log_error
+            result, route, caplog, elapsed=time.time() - start
         )
 
 
@@ -147,30 +129,38 @@ class TestSendCompleted:
             result=_ATS_RESULT,
         ).model_dump_json().encode()
 
-        with _successful_http_client() as mock_client:
+        with respx.mock:
+            route = respx.post(settings.next_webhook_url).mock(
+                return_value=httpx.Response(200)
+            )
             result = send_completed(
                 _SCAN_ID, _ATS_SCORE, _JOB_TITLE, _ATS_RESULT, settings
             )
 
         _assert_delivered_with_hmac(
-            result, mock_client, settings, expected_body
+            result, route.calls.last.request, settings, expected_body
         )
 
     def test_returns_false_when_post_always_returns_500(
-        self, settings: Settings
+        self,
+        settings: Settings,
+        caplog: pytest.LogCaptureFixture,
+        webhook_retry_clock,
     ) -> None:
         """send_completed returns False after 4 attempts when every response is non-2xx."""
-        with _failing_http_client() as (
-            mock_client,
-            mock_sleep,
-            mock_log_error,
-        ):
+        caplog.set_level(logging.ERROR)
+        start = time.time()
+
+        with respx.mock:
+            route = respx.post(settings.next_webhook_url).mock(
+                return_value=httpx.Response(500)
+            )
             result = send_completed(
                 _SCAN_ID, _ATS_SCORE, _JOB_TITLE, _ATS_RESULT, settings
             )
 
         _assert_retries_exhausted(
-            result, mock_client, mock_sleep, mock_log_error
+            result, route, caplog, elapsed=time.time() - start
         )
 
 
@@ -185,24 +175,32 @@ class TestSendFailed:
             failureReason=_FAILURE_REASON,
         ).model_dump_json().encode()
 
-        with _successful_http_client() as mock_client:
+        with respx.mock:
+            route = respx.post(settings.next_webhook_url).mock(
+                return_value=httpx.Response(200)
+            )
             result = send_failed(_SCAN_ID, _FAILURE_REASON, settings)
 
         _assert_delivered_with_hmac(
-            result, mock_client, settings, expected_body
+            result, route.calls.last.request, settings, expected_body
         )
 
     def test_returns_false_when_post_always_returns_500(
-        self, settings: Settings
+        self,
+        settings: Settings,
+        caplog: pytest.LogCaptureFixture,
+        webhook_retry_clock,
     ) -> None:
         """send_failed returns False after 4 attempts when every response is non-2xx."""
-        with _failing_http_client() as (
-            mock_client,
-            mock_sleep,
-            mock_log_error,
-        ):
+        caplog.set_level(logging.ERROR)
+        start = time.time()
+
+        with respx.mock:
+            route = respx.post(settings.next_webhook_url).mock(
+                return_value=httpx.Response(500)
+            )
             result = send_failed(_SCAN_ID, _FAILURE_REASON, settings)
 
         _assert_retries_exhausted(
-            result, mock_client, mock_sleep, mock_log_error
+            result, route, caplog, elapsed=time.time() - start
         )
