@@ -21,8 +21,7 @@ FastAPI must be reborn as a dedicated **background scan worker**: it receives sc
 - [ ] Implement real ATS analysis pipeline: S3 fetch → PDF parse → LLM agent → result
 - [ ] Notify Next.js of scan lifecycle events (processing, completed, failed) via signed webhooks
 - [ ] Re-enqueue incomplete scans automatically on startup
-- [ ] Wire a real (partial) LLM agent producing structured ATSScanResult
-- [ ] Extract `cv_preview` deterministically from markdown (no LLM)
+- [ ] Wire a real (partial) LLM agent producing structured ATSScanResult including `cv_preview`
 
 ---
 
@@ -77,11 +76,10 @@ Explicitly excluded from this feature.
 2. WHEN status changes to `processing` THEN FastAPI SHALL send the `processing` webhook to Next.js before proceeding with the pipeline.
 3. WHEN FastAPI fetches the PDF from S3 using `bucket` and `file_key` THEN it SHALL use its own S3 credentials (`S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`) — not proxy through Next.js.
 4. WHEN the PDF bytes are available THEN FastAPI SHALL extract markdown text using the existing `extract_markdown_from_resume()` function.
-5. WHEN markdown is extracted THEN FastAPI SHALL call `run_agent(markdown)` to produce scores, keywords, issues, and `job_title_detected`.
-6. WHEN `cv_preview` is needed THEN FastAPI SHALL extract it **deterministically** from the markdown (regex/heuristics — no LLM call for this field).
-7. WHEN all steps succeed THEN FastAPI SHALL persist `status=completed`, `result_json`, `ats_score`, `job_title_detected`, `scanned_at=now()` to SQLite.
-8. WHEN any step raises an exception THEN FastAPI SHALL persist `status=failed` and `failure_reason=str(exc)` to SQLite.
-9. WHEN pipeline completes (success or failure) THEN FastAPI SHALL send the terminal webhook to Next.js with the full result or failure reason.
+5. WHEN markdown is extracted THEN FastAPI SHALL call `run_agent(markdown)` to produce scores, keywords, issues, `job_title_detected`, and `cv_preview`.
+6. WHEN all steps succeed THEN FastAPI SHALL persist `status=completed`, `result_json`, `ats_score`, `job_title_detected`, `scanned_at=now()` to SQLite.
+7. WHEN any step raises an exception THEN FastAPI SHALL persist `status=failed` and `failure_reason=str(exc)` to SQLite.
+8. WHEN pipeline completes (success or failure) THEN FastAPI SHALL send the terminal webhook to Next.js with the full result or failure reason.
 
 **Independent Test:** Insert a pending scan in SQLite with a known `file_key`; mock S3 to return a real PDF; call `process_scan()` directly; assert SQLite row has `status=completed` and `result_json` is a valid ATSScanResult JSON.
 
@@ -159,20 +157,22 @@ Explicitly excluded from this feature.
 
 ---
 
-### P2: Deterministic cv_preview Extractor
+### P2: cv_preview via LLM Agent
 
-**User Story:** As the frontend rendering the report, I want a `cv_preview` object with the candidate's basic info extracted without LLM so that the preview always renders even if LLM is slow.
+**User Story:** As the frontend rendering the report, I want a `cv_preview` object with the candidate's basic info extracted from the resume so that the preview renders alongside ATS scores.
 
-**Why P2:** Enhances report quality without LLM latency/cost; deterministic = testable and reliable.
+**Why P2:** Report quality depends on structured preview data; a single LLM call returns scores and preview together.
 
 **Acceptance Criteria:**
 
-1. WHEN `extract_cv_preview(markdown)` is called THEN it SHALL return a dict with at minimum: `name` (str or None), `contact` (list[str]), `summary` (str or None), `sections` (list with section headings).
-2. WHEN the markdown has no identifiable name THEN `name` SHALL be `null` (not an error).
-3. WHEN `extract_cv_preview` is called THEN it SHALL complete in < 100ms (no LLM, no network I/O).
-4. WHEN the full ATSScanResult is assembled THEN `cv_preview` SHALL come from `extract_cv_preview()`, not from the LLM response.
+1. WHEN `run_agent(markdown)` is called THEN the returned `AgentResult` SHALL include a `cv_preview` field matching the `CVPreview` schema (`name`, `contact`, `experience`, `education`, `skills`, etc.).
+2. WHEN the markdown has no identifiable name THEN `cv_preview.name` SHALL be `""` (not an error).
+3. WHEN the LLM omits optional preview fields THEN defaults SHALL be empty-safe (empty strings/lists, `skills=None`).
+4. WHEN the full ATSScanResult is assembled THEN `cv_preview` SHALL come from `run_agent()`, not from a separate parser.
 
-**Independent Test:** Call `extract_cv_preview(sample_markdown)` with a real resume markdown fixture → assert dict has required keys; `name` is a string or None; runs in < 100ms.
+**Independent Test:** Mock OpenAI; call `run_agent(sample_markdown)` → assert `cv_preview` has required keys and empty-safe defaults when fields are absent.
+
+> **Supersedes:** deterministic `extract_cv_preview` heuristics (ATS-33, ATS-35). Removed in favour of single-call agent extraction.
 
 ---
 
@@ -184,7 +184,7 @@ Explicitly excluded from this feature.
 
 **Acceptance Criteria:**
 
-1. WHEN `pytest` is run THEN tests SHALL cover: `POST /scans` happy path, `POST /scans` missing auth (401), `POST /scans` duplicate scan_id (409), webhook HMAC signing correctness, `extract_cv_preview` with sample markdown.
+1. WHEN `pytest` is run THEN tests SHALL cover: `POST /scans` happy path, `POST /scans` missing auth (401), `POST /scans` duplicate scan_id (409), webhook HMAC signing correctness, `run_agent` cv_preview mapping.
 2. WHEN tests run THEN they SHALL NOT require a real S3 endpoint, real LLM API, or a real Next.js instance (all mocked).
 3. WHEN tests run THEN zero failures SHALL be the gate for merging.
 
@@ -292,9 +292,9 @@ FastAPI must support (and fail fast if required ones are absent):
 | ATS-30 | P2: LLM Agent — return typed Pydantic ATSScanResult fields | Design | Mapped → `design.md` § `AgentResult` |
 | ATS-31 | P2: LLM Agent — raise on failure (caught by pipeline) | Design | Mapped → `design.md` § Error handling |
 | ATS-32 | P2: LLM Agent — fail fast if OPENAI_API_KEY absent | Design | Mapped → `design.md` § Settings |
-| ATS-33 | P2: cv_preview — deterministic extraction from markdown | Design | Mapped → `design.md` § `extract_cv_preview` |
-| ATS-34 | P2: cv_preview — returns null name gracefully | Design | Mapped → `design.md` § OQ-1 |
-| ATS-35 | P2: cv_preview — completes < 100ms | Design | Mapped → `design.md` § P2 heuristics |
+| ATS-33 | P2: cv_preview — extracted by LLM agent in single call | Design | Mapped → `design.md` § `run_agent` |
+| ATS-34 | P2: cv_preview — returns empty name gracefully | Design | Mapped → `design.md` § OQ-1 |
+| ATS-35 | P2: cv_preview — empty-safe defaults when LLM omits fields | Design | Supersedes <100ms heuristic requirement |
 | ATS-36 | P3: Tests — pytest covers 5 critical paths | Design | Mapped → `design.md` § Testing |
 | ATS-37 | P3: Tests — all external deps mocked | Design | Mapped → `design.md` § Testing |
 

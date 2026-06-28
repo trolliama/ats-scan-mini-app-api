@@ -68,7 +68,7 @@ flowchart TB
 **Location:** `src/scan/schemas.py`
 **Purpose:** Request/response and webhook DTOs for the scan pipeline.
 **Implementation:** `CreateScanRequest`, `ATSScanResult`, `AgentResult`, webhook payloads with camelCase fields for outbound JSON.
-**Example:** `AgentResult` excludes `cv_preview` (LLM-only output); `ATSScanResult` merges agent output + deterministic preview.
+**Example:** `AgentResult` includes `cv_preview` from the single LLM structured-output call; `ATSScanResult` maps agent output directly.
 
 ### Structured logging with domain binding
 
@@ -111,7 +111,7 @@ Next.js
 
 Background: process_scan
   → mark_processing + processing webhook (idempotent)
-  → S3 GetObject → extract_markdown + extract_cv_preview + run_agent
+  → S3 GetObject → extract_markdown + run_agent (scores + cv_preview)
   → mark_completed/failed + terminal webhook (idempotent)
 
 Startup lifespan

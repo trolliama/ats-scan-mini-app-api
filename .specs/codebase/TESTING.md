@@ -12,7 +12,7 @@
 **Location:**
 
 - `tests/integration/` — repository, DB, and cross-module tests
-- `tests/unit/` — pure unit tests (S3, webhook, agent, cv_preview)
+- `tests/unit/` — pure unit tests 
 
 **Naming:**
 

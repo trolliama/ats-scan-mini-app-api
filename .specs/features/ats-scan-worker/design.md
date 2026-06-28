@@ -29,8 +29,7 @@ flowchart TB
         Svc["scan/service.py\nprocess_scan"]
         S3Client["storage/s3.py"]
         Parser["resume_parser.py"]
-        Preview["resume_parser.py\nextract_cv_preview"]
-        Agent["agent.py\nrun_agent"]
+        Agent["agent.py\nrun_agent\n(scores + cv_preview)"]
         WH["scan/webhook.py"]
     end
 
@@ -45,7 +44,6 @@ flowchart TB
     Svc --> S3Client
     S3Client --> S3
     Svc --> Parser
-    Svc --> Preview
     Svc --> Agent
 ```
 
@@ -70,7 +68,7 @@ sequenceDiagram
     API->>DB: webhook_processing_sent=true
 
     API->>S3: GetObject(bucket, file_key)
-    API->>API: extract_markdown + extract_cv_preview + run_agent
+    API->>API: extract_markdown + run_agent (scores + cv_preview)
     API->>DB: UPDATE completed, result_json
     API->>WH: completed webhook + result
     WH->>Next: POST /api/ats/webhook
@@ -154,7 +152,7 @@ The spec's ATSScanResult example uses simplified `category_scores` keys (`format
 - `ATSIssue`: `id`, `category`, `severity` (`critical` \| `warning` \| `info`), `description`, `solution`
 - `CVPreview`: full structure with `contact: CVContactItem[]`, `experience`, `education`, etc.
 
-P2 `extract_cv_preview` targets the full `CVPreview` shape. P1 may populate sparse defaults (empty arrays, `name=""`) so webhooks validate.
+P2 `run_agent` returns the full `CVPreview` shape in a single LLM call. Empty-safe defaults (empty arrays, `name=""`) when fields are absent.
 
 ---
 
@@ -178,7 +176,7 @@ src/
     service.py            # process_scan orchestration
     webhook.py            # sign + send + retry
   agent.py                # run_agent -> AgentResult
-  resume_parser.py        # existing + extract_cv_preview (P2)
+  resume_parser.py        # extract_markdown_from_resume only
 ```
 
 `main.py` stays thin: route handlers + lifespan only. Business logic lives in `scan/service.py`.
@@ -304,13 +302,14 @@ class ATSScanResult(BaseModel):
     cv_preview: CVPreview
 
 class AgentResult(BaseModel):
-    """LLM output only — no cv_preview."""
+    """Full LLM output including cv_preview."""
     overall_score: int
     category_scores: dict[str, int]
     missing_keywords: list[str]
     found_keywords: list[str]
     issues: list[ATSIssue]
     job_title_detected: str | None
+    cv_preview: CVPreview
 ```
 
 - **Webhook DTOs** (camelCase, separate models or `model_config` aliases):
@@ -354,15 +353,14 @@ class WebhookFailedPayload(BaseModel):
 5. try:
        bytes = fetch_object(record.bucket, record.file_key)
        md = extract_markdown_from_resume(bytes, record.original_filename)
-       preview = extract_cv_preview(md)          # P1: sparse stub; P2: real
-       agent_out = run_agent(md)                 # P1: stub; P2: LLM
+       agent_out = run_agent(md)                 # scores + cv_preview in one LLM call
        result = ATSScanResult(
            overall_score=agent_out.overall_score,
            category_scores=agent_out.category_scores,
            missing_keywords=agent_out.missing_keywords,
            found_keywords=agent_out.found_keywords,
            issues=agent_out.issues,
-           cv_preview=preview,
+           cv_preview=agent_out.cv_preview,
        )
        repo.mark_completed(scan_id, result, job_title=agent_out.job_title_detected)
    except Exception as exc:
@@ -416,14 +414,12 @@ def send_failed(scan_id: str, reason: str, settings: Settings) -> bool: ...
 
 ---
 
-### `extract_cv_preview` (`resume_parser.py`)
+### `run_agent` cv_preview (`agent.py`)
 
-- **Purpose**: Build `CVPreview` without LLM (P2).
-- **Interfaces**:
-  - `def extract_cv_preview(markdown: str) -> CVPreview`
-- **P1 stub**: Return empty-safe `CVPreview(name="", contact=[], experience=[], education=[])`.
-- **P2 heuristics**: Parse first `#`/`##` heading as name; regex emails/phones into `CVContactItem`; split on `##` for sections → map to `experience` / `education` / `skills` where possible.
-- **Reuses**: Markdown structure from MarkItDown output.
+- **Purpose**: Extract `CVPreview` alongside ATS scores in a single LLM structured-output call (supersedes `extract_cv_preview` heuristics).
+- **Interfaces**: `cv_preview: _CVPreviewFromLLM` nested in `_AgentResultFromLLM`; mapped to domain `CVPreview` in `_to_agent_result`.
+- **Prompt**: Instruct LLM to extract candidate fields from arbitrary markdown layout; use empty-safe defaults when fields are absent; never invent data.
+- **Reuses**: Same `_AgentResultFromLLM` schema as scores/issues.
 
 ---
 
@@ -557,7 +553,7 @@ Align with `.specs/codebase/TESTING.md`:
 | `tests/integration/test_scan_repository.py` | Repository CRUD | Real `Session` + `ScanRepository` |
 | `tests/test_scans_route.py` | ATS-01–05 | TestClient; 401/409/202 |
 | `tests/test_webhook.py` | ATS-15–20 | Unit-test `sign_payload`; mock `httpx` |
-| `tests/test_cv_preview.py` | ATS-33–35 (P2) | Direct function call + fixture markdown |
+| `tests/unit/test_agent.py` | ATS-29–35 (P2) | Mock `ChatOpenAI`; cv_preview mapping + defaults |
 | `tests/test_process_scan.py` | ATS-06–14, ATS-24 | Mock S3, agent, webhook; real SQLAlchemy session |
 
 **Isolation**: Each test gets a fresh in-memory engine (`StaticPool`) or temp SQLite file. No shared module-level `jobs` dict.
@@ -576,7 +572,7 @@ Update `tests/http/start.http` → new `tests/http/scans.http` for manual smoke 
 | **P1b** | `s3`, `service.process_scan` stub agent + stub cv_preview | ATS-06–14 |
 | **P1c** | `webhook.py` | ATS-15–21 |
 | **P1d** | Lifespan recovery | ATS-22–24 |
-| **P2** | Real `run_agent`, `extract_cv_preview` | ATS-29–35 |
+| **P2** | Real `run_agent` (scores + cv_preview) | ATS-29–35 |
 | **P3** | pytest suite | ATS-36–37 |
 
 ---
@@ -615,5 +611,5 @@ Design covers all P1 requirements (ATS-01–28). P2/P3 mapped to implementation 
 | ATS-15–21 | `scan/webhook.py` |
 | ATS-22–24 | `lifespan` + recovery skip logic in `process_scan` |
 | ATS-25–28 | Legacy removal + `pyproject.toml` dev deps |
-| ATS-29–35 | `agent.py`, `extract_cv_preview` (P2) |
+| ATS-29–35 | `agent.py` (scores + cv_preview) |
 | ATS-36–37 | Testing strategy |
