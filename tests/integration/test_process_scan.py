@@ -79,6 +79,8 @@ class TestProcessScan:
         result = ATSScanResult.model_validate_json(row["result_json"])
         assert result.overall_score == 0
         assert set(result.category_scores.keys()) == set(ATSCategoryKey.all_keys())
+        assert result.cv_preview.name == ""
+        assert result.cv_preview.contact == []
         assert len(webhook_respx.calls) == 2
         assert _webhook_statuses(webhook_respx) == ["processing", "completed"]
 

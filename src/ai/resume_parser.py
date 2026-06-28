@@ -3,8 +3,6 @@ from pathlib import PurePath
 
 from markitdown import MarkItDown
 
-from core.models import CVPreview
-
 SUPPORTED_EXTENSIONS = frozenset({".pdf", ".docx"})
 
 _converter = MarkItDown()
@@ -37,15 +35,3 @@ def extract_markdown_from_resume(content: bytes, filename: str) -> str:
     if not markdown:
         raise ValueError("Could not extract text from resume")
     return markdown
-
-
-def extract_cv_preview(markdown: str) -> CVPreview:
-    return CVPreview(
-        name="",
-        headline=None,
-        contact=[],
-        summary=None,
-        experience=[],
-        education=[],
-        skills=None,
-    )

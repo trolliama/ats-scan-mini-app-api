@@ -19,6 +19,7 @@ dependencies = [
     "boto3 (>=1.35.0,<2.0.0)",
     "httpx (>=0.28.0,<0.29.0)",
     "sqlalchemy (>=2.0.0,<3.0.0)",
+    "langchain-openai (>=0.3.0,<1.0.0)",
 ]
 
 [tool.poetry]
@@ -40,6 +41,11 @@ pythonpath = ["src", "."]
 
 [tool.mypy]
 mypy_path = "src"
+
+[tool.pyright]
+include = ["src", "tests"]
+extraPaths = ["src"]
+pythonVersion = "3.13"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

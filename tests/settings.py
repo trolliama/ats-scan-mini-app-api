@@ -16,6 +16,7 @@ def make_test_settings(**overrides: object) -> Settings:
         "s3_access_key": "test-access-key",
         "s3_secret_key": "test-secret-key",
         "s3_region": "us-east-1",
+        "openai_api_key": "sk-test",
     }
     defaults.update(overrides)
     return Settings(_env_file=None, **defaults)

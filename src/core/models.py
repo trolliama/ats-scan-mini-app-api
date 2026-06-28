@@ -85,7 +85,7 @@ class ATSScanResult(BaseModel):
 
 
 class AgentResult(BaseModel):
-    """LLM output only — no cv_preview."""
+    """Full LLM analysis output including ATS scores and cv_preview."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -95,6 +95,7 @@ class AgentResult(BaseModel):
     found_keywords: list[str]
     issues: list[ATSIssue]
     job_title_detected: str | None = None
+    cv_preview: CVPreview
 
 
 class ScanCreate(BaseModel):

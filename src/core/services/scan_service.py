@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session, sessionmaker
 
 from ai.agent import run_agent
-from ai.resume_parser import extract_cv_preview, extract_markdown_from_resume
+from ai.resume_parser import extract_markdown_from_resume
 from core import config
 from core.enums import ScanStatus
 from core.exceptions import ScanNotFound
@@ -76,7 +76,6 @@ def process_scan(scan_id: str, session_factory: sessionmaker[Session]) -> None:
             content, record.original_filename
         )
         log.debug("markdown_extracted", length=len(markdown))
-        preview = extract_cv_preview(markdown)
         agent_out = run_agent(markdown)
         result = ATSScanResult(
             overall_score=agent_out.overall_score,
@@ -84,7 +83,7 @@ def process_scan(scan_id: str, session_factory: sessionmaker[Session]) -> None:
             missing_keywords=agent_out.missing_keywords,
             found_keywords=agent_out.found_keywords,
             issues=agent_out.issues,
-            cv_preview=preview,
+            cv_preview=agent_out.cv_preview,
         )
 
         with unit_of_work(session_factory) as uow:
